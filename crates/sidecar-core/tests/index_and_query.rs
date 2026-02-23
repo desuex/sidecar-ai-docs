@@ -28,7 +28,10 @@ fn index_fixture() -> (SqliteRepository, sidecar_core::indexer::IndexResult) {
 #[test]
 fn indexes_all_fixture_files() {
     let (_repo, result) = index_fixture();
-    assert_eq!(result.files_indexed, 3, "should index cart.ts, utils.ts, types.ts");
+    assert_eq!(
+        result.files_indexed, 3,
+        "should index cart.ts, utils.ts, types.ts"
+    );
     assert!(result.symbols_extracted > 0, "should extract symbols");
 }
 
@@ -45,7 +48,10 @@ fn search_cart_service() {
 
     assert!(!result.results.is_empty(), "should find CartService");
     let names: Vec<&str> = result.results.iter().map(|s| s.name.as_str()).collect();
-    assert!(names.contains(&"CartService"), "results should contain CartService: {names:?}");
+    assert!(
+        names.contains(&"CartService"),
+        "results should contain CartService: {names:?}"
+    );
 }
 
 #[test]
@@ -80,7 +86,10 @@ fn get_symbol_by_uid() {
         .expect("search");
 
     let sym = &result.results[0];
-    let found = repo.get_symbol(&sym.uid).expect("get_symbol").expect("symbol should exist");
+    let found = repo
+        .get_symbol(&sym.uid)
+        .expect("get_symbol")
+        .expect("symbol should exist");
     assert_eq!(found.uid, sym.uid);
     assert_eq!(found.name, sym.name);
 }
