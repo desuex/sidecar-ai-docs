@@ -8,7 +8,7 @@ use walkdir::WalkDir;
 
 use crate::doc_parser;
 use crate::fingerprint::{compute_content_hash, compute_fingerprint};
-use crate::model::{DocRecord, FileRecord, Symbol};
+use crate::model::{DocRecord, FileRecord, Reference, Symbol};
 use crate::repository::Repository;
 use crate::uid::generate_uid;
 use sidecar_parsing::LanguageAdapter;
@@ -19,6 +19,7 @@ pub struct IndexResult {
     pub files_indexed: u32,
     pub files_skipped: u32,
     pub symbols_extracted: u32,
+    pub refs_extracted: u32,
     pub duration_ms: u64,
 }
 
@@ -167,11 +168,125 @@ pub fn index_project(
         info!("indexed {} ({} symbols)", rel_path, symbols.len());
     }
 
+    // === Pass 2: Extract and resolve references ===
+    let mut refs_extracted: u32 = 0;
+
+    for entry in &entries {
+        let path = entry.path();
+
+        let language = match path.extension().and_then(|e| e.to_str()) {
+            Some("ts") | Some("tsx") => Language::TypeScript,
+            Some("js") | Some("jsx") => Language::JavaScript,
+            Some("rs") => Language::Rust,
+            _ => continue,
+        };
+
+        let adapter = match adapters.iter().find(|a| a.language() == language) {
+            Some(a) => *a,
+            None => continue,
+        };
+
+        let rel_path = match path.strip_prefix(root) {
+            Ok(p) => p.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+
+        let file_uid_str = format!("file:{rel_path}");
+        let file_uid: sidecar_types::Uid = match file_uid_str.parse() {
+            Ok(u) => u,
+            Err(_) => continue,
+        };
+
+        let content = match std::fs::read(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let raw_refs = adapter.parse_refs(&content);
+        if raw_refs.is_empty() {
+            continue;
+        }
+
+        let module_path = rel_path
+            .strip_suffix(".ts")
+            .or_else(|| rel_path.strip_suffix(".tsx"))
+            .or_else(|| rel_path.strip_suffix(".js"))
+            .or_else(|| rel_path.strip_suffix(".jsx"))
+            .or_else(|| rel_path.strip_suffix(".rs"))
+            .unwrap_or(&rel_path);
+
+        let mut resolved_refs = Vec::new();
+
+        for raw_ref in &raw_refs {
+            // Resolve from_qualified_name → from_uid (search symbols in this file's scope)
+            let from_uid = if raw_ref.from_qualified_name == "<file>" {
+                file_uid.clone()
+            } else {
+                // Search for a symbol with this qualified name
+                let search = crate::query::SearchQuery {
+                    query: raw_ref.from_qualified_name.clone(),
+                    limit: sidecar_types::Limit::default(),
+                    offset: sidecar_types::Offset::default(),
+                };
+                match repo.search_symbols(&search) {
+                    Ok(result) => {
+                        match result
+                            .results
+                            .iter()
+                            .find(|s| s.qualified_name == raw_ref.from_qualified_name)
+                        {
+                            Some(s) => s.uid.clone(),
+                            None => continue, // Can't resolve from
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            };
+
+            // Resolve to_name → to_uid
+            let search = crate::query::SearchQuery {
+                query: raw_ref.to_name.clone(),
+                limit: sidecar_types::Limit::default(),
+                offset: sidecar_types::Offset::default(),
+            };
+            let to_uid = match repo.search_symbols(&search) {
+                Ok(result) => {
+                    // Prefer exact name match
+                    match result.results.iter().find(|s| s.name == raw_ref.to_name) {
+                        Some(s) => s.uid.clone(),
+                        None => continue, // Can't resolve to
+                    }
+                }
+                Err(_) => continue,
+            };
+
+            resolved_refs.push(Reference {
+                from_uid,
+                to_uid,
+                file_uid: file_uid.clone(),
+                range: raw_ref.range,
+                ref_kind: raw_ref.ref_kind,
+            });
+        }
+
+        if !resolved_refs.is_empty() {
+            let count = resolved_refs.len();
+            repo.upsert_refs(&resolved_refs)?;
+            refs_extracted += count as u32;
+            debug!(
+                "resolved {count}/{} refs in {}",
+                raw_refs.len(),
+                module_path
+            );
+        }
+    }
+
     let duration_ms = start.elapsed().as_millis() as u64;
     Ok(IndexResult {
         files_indexed,
         files_skipped,
         symbols_extracted,
+        refs_extracted,
         duration_ms,
     })
 }

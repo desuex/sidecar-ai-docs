@@ -111,7 +111,7 @@ fn main() {
             limit,
             offset,
             json,
-        } => cmd::refs::run(uid, limit, offset, json),
+        } => cmd::refs::run(root, sidecar_dir, uid, limit, offset, json),
         Commands::Doc {
             ref uid,
             ref mode,

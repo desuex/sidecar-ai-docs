@@ -49,10 +49,11 @@ pub fn run(root: &str, sidecar_dir: &str, json: bool) -> i32 {
                 println!("{}", serde_json::to_string_pretty(&output).unwrap());
             } else {
                 eprintln!(
-                    "Indexed {} files ({} skipped), {} symbols, {} docs in {}ms",
+                    "Indexed {} files ({} skipped), {} symbols, {} refs, {} docs in {}ms",
                     result.files_indexed,
                     result.files_skipped,
                     result.symbols_extracted,
+                    result.refs_extracted,
                     docs_indexed,
                     result.duration_ms,
                 );

@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use tree_sitter::{Node, Parser};
 
 use crate::adapter::{LanguageAdapter, RawRef, RawSymbol};
-use sidecar_types::{Language, Range, SymbolKind, Visibility};
+use sidecar_types::{Language, Range, RefKind, SymbolKind, Visibility};
 
 /// TypeScript/JavaScript language adapter using Tree-sitter.
 pub struct TypeScriptAdapter {
@@ -56,9 +56,18 @@ impl LanguageAdapter for TypeScriptAdapter {
         symbols
     }
 
-    fn parse_refs(&self, _source: &[u8]) -> Vec<RawRef> {
-        // TODO(M2): Tree-sitter reference extraction
-        Vec::new()
+    fn parse_refs(&self, source: &[u8]) -> Vec<RawRef> {
+        let tree = match self.parser.borrow_mut().parse(source, None) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let mut refs = Vec::new();
+        let root = tree.root_node();
+        collect_refs(source, &root, None, &mut refs);
+
+        refs.sort_by(|a, b| a.range.start.cmp(&b.range.start));
+        refs
     }
 }
 
@@ -323,9 +332,235 @@ fn has_accessibility_modifier(source: &[u8], node: &Node, modifier: &str) -> boo
     false
 }
 
+/// Recursively walk the AST and collect references.
+fn collect_refs(source: &[u8], node: &Node, enclosing: Option<&str>, out: &mut Vec<RawRef>) {
+    let kind_str = node.kind();
+
+    match kind_str {
+        // import { Foo, Bar } from "./module"
+        "import_statement" => {
+            if let Some(clause) = node.child_by_field_name("source") {
+                // Find import specifiers
+                for i in 0..node.child_count() {
+                    if let Some(child) = node.child(i) {
+                        if child.kind() == "import_clause" || child.kind() == "named_imports" {
+                            collect_import_names(source, &child, node, out);
+                        }
+                        // Recurse into import_clause to find named_imports
+                        if child.kind() == "import_clause" {
+                            for j in 0..child.child_count() {
+                                if let Some(gc) = child.child(j) {
+                                    if gc.kind() == "named_imports" {
+                                        collect_import_names(source, &gc, node, out);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let _ = clause; // used above for context
+            }
+            return;
+        }
+        // function call: foo(), this.bar(), obj.method()
+        "call_expression" => {
+            if let Some(func) = node.child_by_field_name("function") {
+                let call_name = extract_call_name(source, &func);
+                if !call_name.is_empty() && !is_builtin_call(&call_name) {
+                    let from = enclosing.unwrap_or("<file>").to_owned();
+                    out.push(RawRef {
+                        from_qualified_name: from,
+                        to_name: call_name,
+                        range: Range {
+                            start: node.start_byte() as u32,
+                            end: node.end_byte() as u32,
+                        },
+                        ref_kind: RefKind::Call,
+                    });
+                }
+            }
+        }
+        // Type annotations: x: Foo, param: Bar[]
+        "type_identifier" => {
+            let name = node_text(source, node).to_owned();
+            if !is_builtin_type(&name) {
+                let from = enclosing.unwrap_or("<file>").to_owned();
+                out.push(RawRef {
+                    from_qualified_name: from,
+                    to_name: name,
+                    range: Range {
+                        start: node.start_byte() as u32,
+                        end: node.end_byte() as u32,
+                    },
+                    ref_kind: RefKind::TypeRef,
+                });
+            }
+            return; // no children
+        }
+        // extends/implements
+        "extends_clause" => {
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    if child.kind() == "identifier" || child.kind() == "type_identifier" {
+                        let name = node_text(source, &child).to_owned();
+                        let from = enclosing.unwrap_or("<file>").to_owned();
+                        out.push(RawRef {
+                            from_qualified_name: from,
+                            to_name: name,
+                            range: Range {
+                                start: child.start_byte() as u32,
+                                end: child.end_byte() as u32,
+                            },
+                            ref_kind: RefKind::Inherit,
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        // Track enclosing scope
+        "class_declaration" => {
+            let class_name = node
+                .child_by_field_name("name")
+                .map(|n| node_text(source, &n).to_owned());
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    collect_refs(source, &child, class_name.as_deref().or(enclosing), out);
+                }
+            }
+            return;
+        }
+        "method_definition" => {
+            let method_name = node.child_by_field_name("name").map(|n| {
+                let name = node_text(source, &n);
+                match enclosing {
+                    Some(parent) => format!("{parent}.{name}"),
+                    None => name.to_owned(),
+                }
+            });
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    collect_refs(source, &child, method_name.as_deref().or(enclosing), out);
+                }
+            }
+            return;
+        }
+        "function_declaration" => {
+            let fn_name = node
+                .child_by_field_name("name")
+                .map(|n| node_text(source, &n).to_owned());
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    collect_refs(source, &child, fn_name.as_deref().or(enclosing), out);
+                }
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    // Default: recurse
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_refs(source, &child, enclosing, out);
+        }
+    }
+}
+
+fn collect_import_names(source: &[u8], node: &Node, import_node: &Node, out: &mut Vec<RawRef>) {
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            if child.kind() == "import_specifier" || child.kind() == "identifier" {
+                let name_node = child.child_by_field_name("name").unwrap_or(child);
+                let name = node_text(source, &name_node).to_owned();
+                if !name.is_empty() && name != "{" && name != "}" && name != "," {
+                    out.push(RawRef {
+                        from_qualified_name: "<file>".to_owned(),
+                        to_name: name,
+                        range: Range {
+                            start: import_node.start_byte() as u32,
+                            end: import_node.end_byte() as u32,
+                        },
+                        ref_kind: RefKind::Import,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn extract_call_name(source: &[u8], func_node: &Node) -> String {
+    match func_node.kind() {
+        "identifier" => node_text(source, func_node).to_owned(),
+        "member_expression" => {
+            // obj.method or this.method — extract the method name
+            if let Some(prop) = func_node.child_by_field_name("property") {
+                node_text(source, &prop).to_owned()
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+fn is_builtin_call(name: &str) -> bool {
+    matches!(
+        name,
+        "push"
+            | "pop"
+            | "splice"
+            | "reduce"
+            | "map"
+            | "filter"
+            | "forEach"
+            | "find"
+            | "length"
+            | "toString"
+            | "valueOf"
+            | "console"
+            | "log"
+            | "error"
+            | "warn"
+            | "parseInt"
+            | "parseFloat"
+            | "require"
+    )
+}
+
+fn is_builtin_type(name: &str) -> bool {
+    matches!(
+        name,
+        "string"
+            | "number"
+            | "boolean"
+            | "void"
+            | "null"
+            | "undefined"
+            | "any"
+            | "never"
+            | "unknown"
+            | "object"
+            | "symbol"
+            | "bigint"
+            | "String"
+            | "Number"
+            | "Boolean"
+            | "Object"
+            | "Array"
+            | "Promise"
+            | "Map"
+            | "Set"
+            | "Date"
+            | "RegExp"
+            | "Error"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sidecar_types::RefKind;
 
     const SAMPLE_TS: &[u8] = br#"
 export class CartService {
@@ -427,5 +662,88 @@ export type ID = string;
                 "symbols not sorted by range"
             );
         }
+    }
+
+    const REFS_TS: &[u8] = br#"
+import { CartItem, Currency } from "./types";
+import { formatCurrency } from "./utils";
+
+export class CartService {
+  private items: CartItem[] = [];
+
+  addItem(item: CartItem): void {
+    this.items.push(item);
+  }
+
+  calculateTotal(currency: Currency): number {
+    return 42;
+  }
+
+  formatTotal(currency: Currency): string {
+    const total = this.calculateTotal(currency);
+    return formatCurrency(total, currency);
+  }
+}
+"#;
+
+    #[test]
+    fn extracts_import_refs() {
+        let adapter = TypeScriptAdapter::new();
+        let refs = adapter.parse_refs(REFS_TS);
+        let imports: Vec<&str> = refs
+            .iter()
+            .filter(|r| r.ref_kind == RefKind::Import)
+            .map(|r| r.to_name.as_str())
+            .collect();
+        assert!(
+            imports.contains(&"CartItem"),
+            "missing CartItem import: {imports:?}"
+        );
+        assert!(
+            imports.contains(&"Currency"),
+            "missing Currency import: {imports:?}"
+        );
+        assert!(
+            imports.contains(&"formatCurrency"),
+            "missing formatCurrency import: {imports:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_call_refs() {
+        let adapter = TypeScriptAdapter::new();
+        let refs = adapter.parse_refs(REFS_TS);
+        let calls: Vec<&str> = refs
+            .iter()
+            .filter(|r| r.ref_kind == RefKind::Call)
+            .map(|r| r.to_name.as_str())
+            .collect();
+        assert!(
+            calls.contains(&"calculateTotal"),
+            "missing calculateTotal call: {calls:?}"
+        );
+        assert!(
+            calls.contains(&"formatCurrency"),
+            "missing formatCurrency call: {calls:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_type_refs() {
+        let adapter = TypeScriptAdapter::new();
+        let refs = adapter.parse_refs(REFS_TS);
+        let types: Vec<&str> = refs
+            .iter()
+            .filter(|r| r.ref_kind == RefKind::TypeRef)
+            .map(|r| r.to_name.as_str())
+            .collect();
+        assert!(
+            types.contains(&"CartItem"),
+            "missing CartItem type ref: {types:?}"
+        );
+        assert!(
+            types.contains(&"Currency"),
+            "missing Currency type ref: {types:?}"
+        );
     }
 }

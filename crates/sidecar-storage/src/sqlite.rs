@@ -2,7 +2,8 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, Row};
 use sidecar_types::{
-    ContentHash, Fingerprint, Language, PathRel, Range, SidecarError, SymbolKind, Uid, Visibility,
+    ContentHash, Fingerprint, Language, PathRel, Range, RefKind, SidecarError, SymbolKind, Uid,
+    Visibility,
 };
 
 use sidecar_core::model::{DocRecord, FileRecord, Reference, Symbol};
@@ -147,8 +148,40 @@ impl Repository for SqliteRepository {
         Ok(())
     }
 
-    fn upsert_refs(&self, _refs: &[Reference]) -> Result<(), SidecarError> {
-        // TODO(M2): INSERT into refs table
+    fn upsert_refs(&self, refs: &[Reference]) -> Result<(), SidecarError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+
+        // Delete old refs for the same file (if any refs provided)
+        if let Some(first) = refs.first() {
+            tx.execute(
+                "DELETE FROM refs WHERE file_uid = ?1",
+                params![first.file_uid.as_str()],
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+        }
+
+        for r in refs {
+            let kind_json = serde_json::to_value(r.ref_kind).unwrap();
+            tx.execute(
+                "INSERT INTO refs (from_uid, to_uid, file_uid, range_start, range_end, ref_kind) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    r.from_uid.as_str(),
+                    r.to_uid.as_str(),
+                    r.file_uid.as_str(),
+                    r.range.start,
+                    r.range.end,
+                    kind_json.as_str().unwrap_or("unknown"),
+                ],
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+        }
+
+        tx.commit()
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
         Ok(())
     }
 
@@ -204,12 +237,77 @@ impl Repository for SqliteRepository {
         Ok(result)
     }
 
-    fn find_refs(&self, _uid: &Uid, _query: &RefsQuery) -> Result<RefsResult, SidecarError> {
-        // TODO(M2): SELECT from refs WHERE to_uid = ? ORDER BY ...
+    fn find_refs(&self, uid: &Uid, query: &RefsQuery) -> Result<RefsResult, SidecarError> {
+        let limit = query.limit.value();
+        let offset = query.offset.value();
+
+        // Get total count
+        let total: u32 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM refs WHERE to_uid = ?1",
+                params![uid.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT from_uid, to_uid, file_uid, range_start, range_end, ref_kind \
+                 FROM refs WHERE to_uid = ?1 \
+                 ORDER BY file_uid ASC, range_start ASC \
+                 LIMIT ?2 OFFSET ?3",
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+
+        let results: Vec<Reference> = stmt
+            .query_map(params![uid.as_str(), limit, offset], |row| {
+                let from_uid_str: String = row.get("from_uid")?;
+                let to_uid_str: String = row.get("to_uid")?;
+                let file_uid_str: String = row.get("file_uid")?;
+                let range_start: u32 = row.get("range_start")?;
+                let range_end: u32 = row.get("range_end")?;
+                let ref_kind_str: String = row.get("ref_kind")?;
+
+                Ok((
+                    from_uid_str,
+                    to_uid_str,
+                    file_uid_str,
+                    range_start,
+                    range_end,
+                    ref_kind_str,
+                ))
+            })
+            .map_err(|e| SidecarError::Index(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .filter_map(
+                |(from_uid_str, to_uid_str, file_uid_str, range_start, range_end, ref_kind_str)| {
+                    let from_uid: Uid = from_uid_str.parse().ok()?;
+                    let to_uid: Uid = to_uid_str.parse().ok()?;
+                    let file_uid: Uid = file_uid_str.parse().ok()?;
+                    let ref_kind: RefKind = serde_json::from_str(&format!("\"{ref_kind_str}\""))
+                        .unwrap_or(RefKind::Unknown);
+                    Some(Reference {
+                        from_uid,
+                        to_uid,
+                        file_uid,
+                        range: Range {
+                            start: range_start,
+                            end: range_end,
+                        },
+                        ref_kind,
+                    })
+                },
+            )
+            .collect();
+
+        let truncated = results.len() as u32 == limit;
+
         Ok(RefsResult {
-            total: 0,
-            results: Vec::new(),
-            truncated: false,
+            total,
+            results,
+            truncated,
         })
     }
 
