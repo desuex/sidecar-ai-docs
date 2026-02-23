@@ -1,0 +1,14 @@
+---
+source: crates/sidecar-core/tests/index_and_query.rs
+assertion_line: 74
+expression: summary
+---
+- CartItem (Interface)
+- CartService (Class)
+- CartSummary (Type)
+- CartService.addItem (Method)
+- CartService.calculateTotal (Method)
+- createCart (Function)
+- CartService.formatTotal (Method)
+- CartService.items (Method)
+- CartService.removeItem (Method)

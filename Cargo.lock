@@ -623,6 +623,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sidecar-parsing",
+ "sidecar-storage",
  "sidecar-types",
  "tempfile",
  "tracing",
