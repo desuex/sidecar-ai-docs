@@ -1,3 +1,6 @@
+# Repository Structure
+
+```
 sidecar-ai-docs/
 
   README.md
@@ -8,6 +11,8 @@ sidecar-ai-docs/
   GOVERNANCE.md
   ROADMAP.md
   CHANGELOG.md
+  STACK.md
+  STRUCTURE.md
 
   docs/
 
@@ -55,3 +60,4 @@ sidecar-ai-docs/
 
     TEST-VECTORS.md
     GLOSSARY.md
+```
