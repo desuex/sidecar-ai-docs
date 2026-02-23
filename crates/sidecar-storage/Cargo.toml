@@ -7,4 +7,5 @@ edition.workspace = true
 sidecar-types = { workspace = true }
 sidecar-core = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = { workspace = true }
 tracing = { workspace = true }

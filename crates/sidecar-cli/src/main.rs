@@ -3,23 +3,26 @@ mod output;
 
 use clap::{Parser, Subcommand};
 
+/// Global options shared across commands that need the index.
 #[derive(Parser)]
 #[command(name = "sidecar", version, about = "Code documentation infrastructure")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Project root directory
+    #[arg(long, global = true, default_value = ".")]
+    root: String,
+
+    /// Sidecar directory name (relative to root)
+    #[arg(long, global = true, default_value = ".sidecar")]
+    sidecar_dir: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Build or update the index
     Index {
-        /// Project root directory
-        #[arg(long, default_value = ".")]
-        root: String,
-        /// Sidecar directory
-        #[arg(long, default_value = ".sidecar")]
-        sidecar_dir: String,
         /// Languages to index (comma-separated)
         #[arg(long)]
         languages: Option<String>,
@@ -76,12 +79,6 @@ enum Commands {
     },
     /// Start MCP server on stdio
     Mcp {
-        /// Project root directory
-        #[arg(long, default_value = ".")]
-        root: String,
-        /// Sidecar directory
-        #[arg(long, default_value = ".sidecar")]
-        sidecar_dir: String,
         /// Log level
         #[arg(long, default_value = "info")]
         log_level: String,
@@ -92,19 +89,23 @@ enum Commands {
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     let cli = Cli::parse();
+    let root = &cli.root;
+    let sidecar_dir = &cli.sidecar_dir;
+
     let exit_code = match cli.command {
-        Commands::Index { json, .. } => cmd::index::run(json),
+        Commands::Index { json, .. } => cmd::index::run(root, sidecar_dir, json),
         Commands::Search {
             ref query,
             limit,
             offset,
             json,
-            ..
-        } => cmd::search::run(query, limit, offset, json),
-        Commands::Symbol { ref uid, json } => cmd::symbol::run(uid, json),
+        } => cmd::search::run(root, sidecar_dir, query, limit, offset, json),
+        Commands::Symbol { ref uid, json } => cmd::symbol::run(root, sidecar_dir, uid, json),
         Commands::Refs {
             ref uid,
             limit,

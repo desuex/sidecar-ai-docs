@@ -6,6 +6,7 @@ pub mod ranking;
 pub mod repository;
 pub mod uid;
 
+pub use indexer::IndexResult;
 pub use model::{DocRecord, FileRecord, Reference, Symbol};
 pub use query::{RefsQuery, RefsResult, SearchQuery, SearchResult};
 pub use repository::Repository;
