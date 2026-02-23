@@ -7,3 +7,4 @@ edition.workspace = true
 sidecar-types = { workspace = true }
 tree-sitter = "0.23"
 tree-sitter-typescript = "0.23"
+tree-sitter-rust = "0.23"

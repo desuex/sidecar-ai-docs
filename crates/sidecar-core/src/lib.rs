@@ -1,3 +1,4 @@
+pub mod doc_parser;
 pub mod fingerprint;
 pub mod indexer;
 pub mod model;

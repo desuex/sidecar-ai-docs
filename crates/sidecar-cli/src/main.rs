@@ -116,7 +116,7 @@ fn main() {
             ref uid,
             ref mode,
             json,
-        } => cmd::doc::run(uid, mode, json),
+        } => cmd::doc::run(root, sidecar_dir, uid, mode, json),
         Commands::Mcp { .. } => cmd::mcp::run(),
     };
 

@@ -213,9 +213,81 @@ impl Repository for SqliteRepository {
         })
     }
 
-    fn get_doc(&self, _uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
-        // TODO(M4): SELECT from docs WHERE target_uid = ?
-        Ok(None)
+    fn get_doc(&self, uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT doc_uid, target_uid, path, summary_cache, updated_at \
+                 FROM docs WHERE target_uid = ?1",
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+
+        let result = stmt
+            .query_row(params![uid.as_str()], |row| {
+                let doc_uid_str: String = row.get("doc_uid")?;
+                let target_uid_str: String = row.get("target_uid")?;
+                let path_str: String = row.get("path")?;
+                let summary_cache: Option<String> = row.get("summary_cache")?;
+                let updated_at: String = row.get("updated_at")?;
+
+                Ok((
+                    doc_uid_str,
+                    target_uid_str,
+                    path_str,
+                    summary_cache,
+                    updated_at,
+                ))
+            })
+            .ok();
+
+        match result {
+            Some((doc_uid_str, target_uid_str, path_str, summary_cache, updated_at)) => {
+                let doc_uid: Uid = doc_uid_str
+                    .parse()
+                    .map_err(|_| SidecarError::Index(format!("invalid doc_uid: {doc_uid_str}")))?;
+                let target_uid: Uid = target_uid_str.parse().map_err(|_| {
+                    SidecarError::Index(format!("invalid target_uid: {target_uid_str}"))
+                })?;
+                let path: PathRel = path_str
+                    .parse()
+                    .map_err(|_| SidecarError::Index(format!("invalid doc path: {path_str}")))?;
+
+                Ok(Some(DocRecord {
+                    doc_uid,
+                    target_uid,
+                    path,
+                    summary_cache,
+                    updated_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn upsert_docs(&self, docs: &[DocRecord]) -> Result<(), SidecarError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+
+        for doc in docs {
+            tx.execute(
+                "INSERT OR REPLACE INTO docs (doc_uid, target_uid, path, summary_cache, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    doc.doc_uid.as_str(),
+                    doc.target_uid.as_str(),
+                    doc.path.as_str(),
+                    doc.summary_cache,
+                    doc.updated_at,
+                ],
+            )
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+        }
+
+        tx.commit()
+            .map_err(|e| SidecarError::Index(e.to_string()))?;
+        Ok(())
     }
 }
 

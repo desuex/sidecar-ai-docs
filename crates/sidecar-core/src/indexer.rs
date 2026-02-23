@@ -6,8 +6,9 @@ use sidecar_types::{Language, PathRel};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
+use crate::doc_parser;
 use crate::fingerprint::{compute_content_hash, compute_fingerprint};
-use crate::model::{FileRecord, Symbol};
+use crate::model::{DocRecord, FileRecord, Symbol};
 use crate::repository::Repository;
 use crate::uid::generate_uid;
 use sidecar_parsing::LanguageAdapter;
@@ -50,6 +51,7 @@ pub fn index_project(
             Some("tsx") => Language::TypeScript,
             Some("js") => Language::JavaScript,
             Some("jsx") => Language::JavaScript,
+            Some("rs") => Language::Rust,
             _ => continue, // Skip non-supported files
         };
 
@@ -115,6 +117,7 @@ pub fn index_project(
             .or_else(|| rel_path.strip_suffix(".tsx"))
             .or_else(|| rel_path.strip_suffix(".js"))
             .or_else(|| rel_path.strip_suffix(".jsx"))
+            .or_else(|| rel_path.strip_suffix(".rs"))
             .unwrap_or(&rel_path);
 
         // Convert RawSymbol → Symbol with UID + fingerprint
@@ -181,6 +184,114 @@ fn is_hidden_or_ignored(name: &str) -> bool {
         || name == "dist"
         || name == "build"
         || name == "__pycache__"
+}
+
+/// Result of a doc indexing run.
+#[derive(Debug, Serialize)]
+pub struct DocIndexResult {
+    pub docs_indexed: u32,
+}
+
+/// Scan a docs directory for sidecar doc files, parse YAML front matter,
+/// and populate the docs table.
+pub fn index_docs(
+    root: &Path,
+    docs_dir: &str,
+    repo: &dyn Repository,
+) -> Result<DocIndexResult, sidecar_types::SidecarError> {
+    let docs_path = root.join(docs_dir);
+    if !docs_path.exists() {
+        debug!("docs dir not found: {}", docs_path.display());
+        return Ok(DocIndexResult { docs_indexed: 0 });
+    }
+
+    let mut entries: Vec<_> = WalkDir::new(&docs_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.path().extension().and_then(|ext| ext.to_str()) == Some("md")
+        })
+        .collect();
+    entries.sort_by(|a, b| a.path().cmp(b.path()));
+
+    let mut docs = Vec::new();
+
+    for entry in &entries {
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("cannot read doc {}: {e}", entry.path().display());
+                continue;
+            }
+        };
+
+        let (front_matter, body) = match doc_parser::parse_sidecar_doc(&content) {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("skipping non-sidecar doc {}: {e}", entry.path().display());
+                continue;
+            }
+        };
+
+        let rel_path = match entry.path().strip_prefix(root) {
+            Ok(p) => p.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        let path_rel: sidecar_types::PathRel = match rel_path.parse() {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("invalid doc path {rel_path}: {e}");
+                continue;
+            }
+        };
+
+        let doc_uid: sidecar_types::Uid = match front_matter.doc_uid.parse() {
+            Ok(u) => u,
+            Err(e) => {
+                warn!("invalid doc_uid '{}': {e}", front_matter.doc_uid);
+                continue;
+            }
+        };
+
+        let summary = doc_parser::extract_summary(&body);
+        let updated_at = front_matter
+            .updated_at
+            .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+
+        for anchor in &front_matter.anchors {
+            if anchor.anchor_type != "symbol" {
+                continue;
+            }
+            let symbol_uid_str = match &anchor.symbol_uid {
+                Some(s) => s,
+                None => continue,
+            };
+            let target_uid: sidecar_types::Uid = match symbol_uid_str.parse() {
+                Ok(u) => u,
+                Err(e) => {
+                    warn!("invalid anchor symbol_uid '{symbol_uid_str}': {e}");
+                    continue;
+                }
+            };
+
+            docs.push(DocRecord {
+                doc_uid: doc_uid.clone(),
+                target_uid,
+                path: path_rel.clone(),
+                summary_cache: summary.clone(),
+                updated_at: updated_at.clone(),
+            });
+        }
+    }
+
+    let count = docs.len() as u32;
+    repo.upsert_docs(&docs)?;
+
+    info!("indexed {count} doc entries from {docs_dir}");
+    Ok(DocIndexResult {
+        docs_indexed: count,
+    })
 }
 
 /// Simple timestamp without pulling in chrono.

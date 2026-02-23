@@ -47,17 +47,19 @@ Exit Criteria:
 
 3. Phase 1 — Minimal Viable Index
 
+Status: ✅ Complete (M0 + M1)
+
 Goal: Deterministic symbol identity + basic querying.
 
 3.1 Core Features
-	•	Tree-sitter integration
-	•	Symbol extraction
-	•	UID generation (v1)
-	•	Fingerprint computation
-	•	SQLite storage backend
-	•	Reference extraction (intra-file minimum)
-	•	CLI: index, symbol, search
-	•	Basic MCP server (read-only)
+	•	Tree-sitter integration ✅ (TypeScript via tree-sitter-typescript 0.23)
+	•	Symbol extraction ✅ (classes, methods, functions, interfaces, enums, type aliases, variables)
+	•	UID generation (v1) ✅ (BLAKE3 fingerprint, deterministic format)
+	•	Fingerprint computation ✅ (BLAKE3, formatting-resilient)
+	•	SQLite storage backend ✅ (rusqlite, bundled, atomic transactions)
+	•	Reference extraction (intra-file minimum) — deferred to M2
+	•	CLI: index, symbol, search ✅ (all with --json, stable exit codes)
+	•	Basic MCP server (read-only) — deferred to M3
 
 3.2 Excluded
 	•	Anchoring
@@ -67,11 +69,11 @@ Goal: Deterministic symbol identity + basic querying.
 	•	IDE integration
 
 3.3 Exit Criteria
-	•	UID determinism validated
-	•	Formatting changes preserve UID
-	•	Deterministic search results
-	•	CLI JSON output stable
-	•	Initial test vectors pass
+	•	UID determinism validated ✅ (integration test: separate DBs produce identical UIDs)
+	•	Formatting changes preserve UID ✅ (fingerprint uses structural input, not whitespace)
+	•	Deterministic search results ✅ (ORDER BY name ASC, uid ASC; BTreeMap everywhere)
+	•	CLI JSON output stable ✅ (insta snapshot tests)
+	•	Initial test vectors pass ✅ (43 tests: 20 types, 5 core, 5 parsing, 7 storage, 6 integration)
 
 ⸻
 

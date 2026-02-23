@@ -318,20 +318,25 @@ MVP is **not accepted** unless:
 
 ## 10. MVP Milestones
 
-### M0: Skeleton
+### M0: Skeleton ✅ Complete
 
 * Repo layout
-* Rust workspace
-* CLI wiring
-* SQLite schema + migrations
-* Basic logging
+* Rust workspace (6 crates: types, parsing, core, storage, mcp, cli)
+* CLI wiring (clap with 6 subcommands)
+* SQLite schema + migrations (5 tables, version tracking)
+* Basic logging (tracing to stderr)
+* CI pipeline (.github/workflows/ci.yml — 3-OS matrix)
+* 29 unit tests, cargo fmt/clippy clean
 
-### M1: Parse + Symbols
+### M1: Parse + Symbols ✅ Complete
 
-* Tree-sitter integration for chosen language
-* Symbol extraction
-* UID + fingerprint v1
-* `sidecar index`, `sidecar search`, `sidecar symbol`
+* Tree-sitter integration for TypeScript (v0.23)
+* Symbol extraction (classes, methods, functions, interfaces, enums, type aliases, variables)
+* UID + fingerprint v1 (BLAKE3, deterministic)
+* Incremental indexing (content hash skip)
+* `sidecar index`, `sidecar search`, `sidecar symbol` — all with `--json`
+* 43 tests (unit + integration), insta snapshots
+* Determinism verified: same UIDs across runs, stable search ordering
 
 ### M2: References
 

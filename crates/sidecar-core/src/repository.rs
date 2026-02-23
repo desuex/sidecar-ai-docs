@@ -17,4 +17,5 @@ pub trait Repository {
     fn find_refs(&self, uid: &Uid, query: &RefsQuery) -> Result<RefsResult, SidecarError>;
 
     fn get_doc(&self, uid: &Uid) -> Result<Option<DocRecord>, SidecarError>;
+    fn upsert_docs(&self, docs: &[DocRecord]) -> Result<(), SidecarError>;
 }

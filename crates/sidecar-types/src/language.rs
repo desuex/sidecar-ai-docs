@@ -7,14 +7,16 @@ use std::fmt;
 pub enum Language {
     TypeScript,
     JavaScript,
+    Rust,
 }
 
 impl Language {
-    /// Short code used in UIDs (e.g., "ts", "js").
+    /// Short code used in UIDs (e.g., "ts", "js", "rs").
     pub fn code(&self) -> &'static str {
         match self {
             Language::TypeScript => "ts",
             Language::JavaScript => "js",
+            Language::Rust => "rs",
         }
     }
 }
