@@ -4,18 +4,7 @@
 
 ## 1. Purpose
 
-This document defines the requirements, data structures, and lifecycle of the indexing subsystem.
-
-Indexing is the foundation of the system.
-
-Without a persistent, language-aware index, documentation cannot be:
-
-* Cross-referenced
-* Refactor-resilient
-* Efficiently queried
-* AI-compatible
-
-Indexing is mandatory.
+This document defines the requirements, data structures, and lifecycle of the indexing subsystem. Indexing serves as the primary foundation of the Sidecar AI Code Documentation system. Without a persistent, language-aware index, documentation cannot be successfully cross-referenced, made refactor-resilient, efficiently queried, or rendered AI-compatible. Therefore, the indexing process is a mandatory component of the architecture.
 
 ---
 
@@ -106,7 +95,9 @@ Track:
 
 ## 4. Index Data Model
 
-The index operates as a graph.
+*(For full details, refer to the [Data Model Specification](DATA-MODEL.md))*
+
+The index operates as a graph data structure representing code elements and their relationships.
 
 ### 4.1 Symbol Node
 
@@ -154,7 +145,9 @@ The index operates as a graph.
 
 ## 5. UID Requirements
 
-UID must be:
+*(For complete identity rules, see the [UID and Cross-Reference Model](UID-AND-XREF-MODEL.md))*
+
+The UID system provides stable identities. Each UID must be:
 
 * Deterministic
 * Stable across formatting changes

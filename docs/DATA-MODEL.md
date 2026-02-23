@@ -273,6 +273,19 @@ Concepts allow documentation not tied to a single symbol.
 
 The system forms three interconnected graphs:
 
+```mermaid
+erDiagram
+    FILE ||--o{ SYMBOL : contains
+    MODULE ||--o{ FILE : includes
+    SYMBOL ||--o{ SYMBOL : references
+    
+    DOCUMENTATION_UNIT ||--o{ CONCEPT : relates_to
+    DOCUMENTATION_UNIT ||--o{ DOCUMENTATION_UNIT : extends
+
+    SYMBOL ||--o{ DOCUMENTATION_UNIT : documented_by
+    SYMBOL }o--o{ CONCEPT : relates_to
+```
+
 ### 11.1 Code Graph
 
 Nodes:

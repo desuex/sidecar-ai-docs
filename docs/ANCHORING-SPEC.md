@@ -4,18 +4,7 @@
 
 ## 1. Purpose
 
-This document defines how documentation is bound to code in a refactor-resilient manner.
-
-Anchoring ensures that documentation:
-
-* Remains attached to the correct symbol
-* Survives formatting changes
-* Survives reordering
-* Survives partial refactors
-* Can be deterministically reattached
-* Can detect when attachment becomes invalid
-
-Anchoring is the difference between durable documentation and rot.
+This document defines how documentation is bound to code in a refactor-resilient manner. Anchoring is the critical mechanism that ensures documentation remains attached to the correct symbol, surviving formatting changes, reordering, and partial refactors. It allows documentation to be deterministically reattached or to intelligently detect when an attachment becomes invalid. Ultimately, robust anchoring is the primary defense against documentation rot.
 
 ---
 

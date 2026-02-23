@@ -264,6 +264,8 @@ UID remains canonical.
 
 ## 11. UID Migration Strategy
 
+*(See [Anchoring Specification](ANCHORING-SPEC.md) for details on rebinding and confidence thresholds)*
+
 When UID changes due to refactor:
 
 System must:

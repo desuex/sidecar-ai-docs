@@ -22,22 +22,15 @@ No layer is allowed to collapse into another.
 
 ## 2. High-Level Flow
 
-```text
-Source Code
-   ↓
-Parser (Tree-sitter / LSP)
-   ↓
-Symbol Extraction
-   ↓
-UID Assignment
-   ↓
-Index Construction
-   ↓
-Sidecar Documentation Binding
-   ↓
-Query Engine
-   ↓
-CLI / MCP / IDE / Export
+```mermaid
+flowchart TD
+    A[Source Code] --> B["Parser (Tree-sitter / LSP)"]
+    B --> C[Symbol Extraction]
+    C --> D[UID Assignment]
+    D --> E[Index Construction]
+    E --> F[Sidecar Documentation Binding]
+    F --> G[Query Engine]
+    G --> H["CLI / MCP / IDE / Export"]
 ```
 
 ---
@@ -71,6 +64,8 @@ Output:
 
 ### 3.2 Indexing Layer
 
+*(See [Indexing Specification](INDEXING-SPEC.md))*
+
 Responsibilities:
 
 * Build project-wide symbol graph
@@ -97,6 +92,8 @@ Output:
 
 ### 3.3 Identity Layer (UID System)
 
+*(See [UID and Cross-Reference Model](UID-AND-XREF-MODEL.md))*
+
 Responsibilities:
 
 * Assign stable identities to:
@@ -120,6 +117,8 @@ UID is the backbone of the system.
 ---
 
 ### 3.4 Anchoring Layer
+
+*(See [Anchoring Specification](ANCHORING-SPEC.md))*
 
 Responsibilities:
 
@@ -202,7 +201,27 @@ The core engine must remain editor-agnostic.
 
 ## 4. Internal Data Model
 
+*(See [Data Model Specification](DATA-MODEL.md))*
+
 The system operates on three primary graphs:
+
+```mermaid
+flowchart LR
+    subgraph CodeGraph[Code Graph]
+        F[Files] --- M[Modules]
+        M --- S[Symbols]
+        S -.->|Defines / Calls / Imports| S
+    end
+
+    subgraph CrossGraph[Cross Graph]
+        S <==>|Symbol UID ↔ Doc UID| D[Doc Units]
+    end
+
+    subgraph DocGraph[Documentation Graph]
+        D --- C[Concept Nodes]
+        D --- R[Decision Records]
+    end
+```
 
 ### 4.1 Code Graph
 

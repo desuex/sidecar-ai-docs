@@ -125,17 +125,21 @@ Rendering layers may be added — but they are not the core.
 
 ## Repository Structure
 
-See `docs/` for full specifications:
+See the `docs/` folder for full specifications:
 
-* Architecture
-* Data model
-* Indexing
-* Anchoring
-* MCP
-* CLI
-* IDE integration
-* Token economy
-* Evaluation model
+* [Manifesto & Vision](docs/MANIFESTO.md)
+* [Architecture Overview](docs/ARCHITECTURE-OVERVIEW.md)
+* [Data Model](docs/DATA-MODEL.md)
+* [Indexing Specification](docs/INDEXING-SPEC.md)
+* [UID and Cross-Reference Model](docs/UID-AND-XREF-MODEL.md)
+* [Anchoring Specification](docs/ANCHORING-SPEC.md)
+* [Storage Specification](docs/STORAGE-SPEC.md)
+* [MCP Server Design](docs/MCP-SERVER-DESIGN.md)
+* [CLI Specification](docs/CLI-SPEC.md)
+* [IDE Integration](docs/IDE-INTEGRATION.md)
+* [Token Economy Strategy](docs/TOKEN-ECONOMY-STRATEGY.md)
+* [Evaluation Plan](docs/EVALUATION-PLAN.md)
+* [Terminology & Glossary](docs/GLOSSARY.md)
 
 ---
 
