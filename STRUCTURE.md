@@ -13,6 +13,9 @@ sidecar-ai-docs/
   CHANGELOG.md
   STACK.md
   STRUCTURE.md
+  AGENTS.md
+  CODE_GUIDELINES.md
+  REFLECTION.md
 
   docs/
 
