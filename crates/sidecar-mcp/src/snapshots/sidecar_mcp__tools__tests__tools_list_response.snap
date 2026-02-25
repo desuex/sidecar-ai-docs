@@ -1,0 +1,123 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 41
+result:
+  tools:
+    - description: Search indexed symbols by name or qualified name.
+      inputSchema:
+        properties:
+          fields:
+            oneOf:
+              - type: string
+              - items:
+                  type: string
+                type: array
+          limit:
+            maximum: 1000
+            minimum: 1
+            type: integer
+          offset:
+            minimum: 0
+            type: integer
+          query:
+            type: string
+        required:
+          - query
+        type: object
+      name: search_symbols
+    - description: Get symbol metadata by UID.
+      inputSchema:
+        properties:
+          fields:
+            oneOf:
+              - type: string
+              - items:
+                  type: string
+                type: array
+          uid:
+            type: string
+        required:
+          - uid
+        type: object
+      name: get_symbol
+    - description: Find references to a symbol UID.
+      inputSchema:
+        properties:
+          fields:
+            oneOf:
+              - type: string
+              - items:
+                  type: string
+                type: array
+          limit:
+            maximum: 1000
+            minimum: 1
+            type: integer
+          offset:
+            minimum: 0
+            type: integer
+          uid:
+            type: string
+        required:
+          - uid
+        type: object
+      name: find_references
+    - description: Get sidecar documentation for a target symbol UID.
+      inputSchema:
+        properties:
+          fields:
+            oneOf:
+              - type: string
+              - items:
+                  type: string
+                type: array
+          max_chars:
+            minimum: 1
+            type: integer
+          mode:
+            enum:
+              - summary
+              - full
+            type: string
+          uid:
+            type: string
+        required:
+          - uid
+        type: object
+      name: get_documentation
+    - description: Compute documentation coverage metrics over indexed symbols.
+      inputSchema:
+        properties:
+          public_only:
+            type: boolean
+          scan_limit:
+            minimum: 1
+            type: integer
+        type: object
+      name: coverage_metrics
+    - description: "Return undocumented symbols in deterministic, paginated order."
+      inputSchema:
+        properties:
+          fields:
+            oneOf:
+              - type: string
+              - items:
+                  type: string
+                type: array
+          limit:
+            maximum: 1000
+            minimum: 1
+            type: integer
+          offset:
+            minimum: 0
+            type: integer
+          public_only:
+            type: boolean
+          scan_limit:
+            minimum: 1
+            type: integer
+        type: object
+      name: detect_undocumented_symbols

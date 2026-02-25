@@ -1,0 +1,26 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 32
+result:
+  documented_symbols: 1
+  eligible_symbols: 2
+  public_only: true
+  results:
+    - file_uid: "file:src/cart.ts"
+      fingerprint: 866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c
+      kind: class
+      name: BUndocumented
+      qualified_name: BUndocumented
+      range:
+        end: 100
+        start: 10
+      uid: "sym:ts:src/cart:BUndocumented:22222222"
+      visibility: public
+  scan_complete: true
+  scan_limit: 5000
+  scanned_symbols: 2
+  truncated: false
+  undocumented_total: 1

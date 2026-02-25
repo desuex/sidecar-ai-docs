@@ -1,11 +1,16 @@
 use std::path::Path;
 
 use serde_json::Value;
+use sidecar_core::model::Symbol;
 use sidecar_core::query::{RefsQuery, SearchQuery};
 use sidecar_core::{doc_parser, Repository};
-use sidecar_types::{Limit, Offset, Uid};
+use sidecar_types::{Limit, Offset, Uid, Visibility};
 
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+
+const DOC_SCAN_DEFAULT_LIMIT: u32 = 5000;
+const DOC_SCAN_PAGE_SIZE: u32 = 200;
+const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
 /// Dispatch an MCP request to the appropriate tool handler.
 pub fn dispatch<R: Repository>(repo: &R, req: &JsonRpcRequest, root: &Path) -> JsonRpcResponse {
@@ -14,16 +19,235 @@ pub fn dispatch<R: Repository>(repo: &R, req: &JsonRpcRequest, root: &Path) -> J
     }
 
     match req.method.as_str() {
-        "search_symbols" => handle_search_symbols(repo, req),
-        "get_symbol" => handle_get_symbol(repo, req),
-        "find_references" => handle_find_references(repo, req),
-        "get_documentation" => handle_get_documentation(repo, req, root),
-        _ => JsonRpcResponse::error(
+        "initialize" => handle_initialize(req),
+        "initialized" | "notifications/initialized" => handle_initialized(req),
+        "ping" => handle_ping(req),
+        "shutdown" => handle_shutdown(req),
+        "tools/list" => handle_tools_list(req),
+        "tools/call" => handle_tools_call(repo, req, root),
+        _ => dispatch_legacy_tool(repo, req, root).unwrap_or_else(|| {
+            JsonRpcResponse::error(
+                req.id.clone(),
+                -32601,
+                format!("Method not found: {}", req.method),
+            )
+        }),
+    }
+}
+
+fn dispatch_legacy_tool<R: Repository>(
+    repo: &R,
+    req: &JsonRpcRequest,
+    root: &Path,
+) -> Option<JsonRpcResponse> {
+    match req.method.as_str() {
+        "search_symbols" => Some(handle_search_symbols(repo, req)),
+        "get_symbol" => Some(handle_get_symbol(repo, req)),
+        "find_references" => Some(handle_find_references(repo, req)),
+        "get_documentation" => Some(handle_get_documentation(repo, req, root)),
+        "coverage_metrics" => Some(handle_coverage_metrics(repo, req)),
+        "detect_undocumented_symbols" => Some(handle_detect_undocumented_symbols(repo, req)),
+        _ => None,
+    }
+}
+
+fn handle_initialize(req: &JsonRpcRequest) -> JsonRpcResponse {
+    JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::json!({
+            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "serverInfo": {
+                "name": "sidecar-mcp",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "capabilities": {
+                "tools": {
+                    "listChanged": false
+                }
+            }
+        }),
+    )
+}
+
+fn handle_initialized(req: &JsonRpcRequest) -> JsonRpcResponse {
+    JsonRpcResponse::success(req.id.clone(), serde_json::json!({}))
+}
+
+fn handle_ping(req: &JsonRpcRequest) -> JsonRpcResponse {
+    JsonRpcResponse::success(req.id.clone(), serde_json::json!({}))
+}
+
+fn handle_shutdown(req: &JsonRpcRequest) -> JsonRpcResponse {
+    JsonRpcResponse::success(req.id.clone(), serde_json::json!({}))
+}
+
+fn handle_tools_list(req: &JsonRpcRequest) -> JsonRpcResponse {
+    JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::json!({ "tools": mcp_tools_catalog() }),
+    )
+}
+
+fn handle_tools_call<R: Repository>(
+    repo: &R,
+    req: &JsonRpcRequest,
+    root: &Path,
+) -> JsonRpcResponse {
+    let tool_name = match parse_required_string(&req.params, "name") {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+    let arguments = match parse_optional_object_param(&req.params, "arguments") {
+        Ok(v) => v.unwrap_or_else(|| serde_json::json!({})),
+        Err(msg) => return invalid_params(req, &msg),
+    };
+
+    let tool_req = JsonRpcRequest {
+        jsonrpc: req.jsonrpc.clone(),
+        id: req.id.clone(),
+        method: tool_name.clone(),
+        params: arguments,
+    };
+
+    let Some(tool_resp) = dispatch_legacy_tool(repo, &tool_req, root) else {
+        return JsonRpcResponse::error(
             req.id.clone(),
             -32601,
-            format!("Method not found: {}", req.method),
-        ),
+            format!("Tool not found: {tool_name}"),
+        );
+    };
+
+    if let Some(err) = tool_resp.error {
+        return JsonRpcResponse::error(req.id.clone(), err.code, err.message);
     }
+
+    let Some(result) = tool_resp.result else {
+        return internal_error(req, "tool call returned no result");
+    };
+    let rendered = serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_owned());
+
+    JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": rendered
+                }
+            ],
+            "structuredContent": result,
+            "isError": false
+        }),
+    )
+}
+
+fn mcp_tools_catalog() -> Vec<Value> {
+    vec![
+        serde_json::json!({
+            "name": "search_symbols",
+            "description": "Search indexed symbols by name or qualified name.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "fields": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
+                },
+                "required": ["query"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_symbol",
+            "description": "Get symbol metadata by UID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string"},
+                    "fields": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
+                },
+                "required": ["uid"]
+            }
+        }),
+        serde_json::json!({
+            "name": "find_references",
+            "description": "Find references to a symbol UID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "fields": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
+                },
+                "required": ["uid"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_documentation",
+            "description": "Get sidecar documentation for a target symbol UID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["summary", "full"]},
+                    "max_chars": {"type": "integer", "minimum": 1},
+                    "fields": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
+                },
+                "required": ["uid"]
+            }
+        }),
+        serde_json::json!({
+            "name": "coverage_metrics",
+            "description": "Compute documentation coverage metrics over indexed symbols.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "public_only": {"type": "boolean"},
+                    "scan_limit": {"type": "integer", "minimum": 1}
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "detect_undocumented_symbols",
+            "description": "Return undocumented symbols in deterministic, paginated order.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "public_only": {"type": "boolean"},
+                    "scan_limit": {"type": "integer", "minimum": 1},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "fields": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
+                }
+            }
+        }),
+    ]
 }
 
 fn handle_search_symbols<R: Repository>(repo: &R, req: &JsonRpcRequest) -> JsonRpcResponse {
@@ -218,6 +442,160 @@ fn handle_get_documentation<R: Repository>(
     }
 }
 
+fn handle_coverage_metrics<R: Repository>(repo: &R, req: &JsonRpcRequest) -> JsonRpcResponse {
+    let public_only = match parse_public_only(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+    let scan_limit = match parse_scan_limit(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+
+    match collect_doc_gap(repo, public_only, scan_limit) {
+        Ok(snapshot) => {
+            let undocumented_symbols = snapshot.eligible_symbols - snapshot.documented_symbols;
+            let coverage_pct =
+                round_percentage(snapshot.documented_symbols, snapshot.eligible_symbols);
+            JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::json!({
+                    "public_only": public_only,
+                    "scan_limit": scan_limit,
+                    "scan_complete": snapshot.scan_complete,
+                    "scanned_symbols": snapshot.scanned_symbols,
+                    "eligible_symbols": snapshot.eligible_symbols,
+                    "documented_symbols": snapshot.documented_symbols,
+                    "undocumented_symbols": undocumented_symbols,
+                    "coverage_pct": coverage_pct,
+                }),
+            )
+        }
+        Err(e) => internal_error(req, &e.to_string()),
+    }
+}
+
+fn handle_detect_undocumented_symbols<R: Repository>(
+    repo: &R,
+    req: &JsonRpcRequest,
+) -> JsonRpcResponse {
+    let (limit, offset) = match parse_limit_offset(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+    let public_only = match parse_public_only(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+    let scan_limit = match parse_scan_limit(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+    let fields = match parse_fields(&req.params) {
+        Ok(v) => v,
+        Err(msg) => return invalid_params(req, &msg),
+    };
+
+    match collect_doc_gap(repo, public_only, scan_limit) {
+        Ok(snapshot) => {
+            let total = snapshot.undocumented_symbols.len();
+            let start = usize::min(offset.value() as usize, total);
+            let end = usize::min(start + limit.value() as usize, total);
+
+            let results: Vec<Value> = snapshot.undocumented_symbols[start..end]
+                .iter()
+                .cloned()
+                .map(|sym| {
+                    select_fields(
+                        serde_json::to_value(sym).unwrap_or(Value::Null),
+                        fields.as_deref(),
+                    )
+                })
+                .collect();
+
+            JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::json!({
+                    "public_only": public_only,
+                    "scan_limit": scan_limit,
+                    "scan_complete": snapshot.scan_complete,
+                    "scanned_symbols": snapshot.scanned_symbols,
+                    "eligible_symbols": snapshot.eligible_symbols,
+                    "documented_symbols": snapshot.documented_symbols,
+                    "undocumented_total": total,
+                    "results": results,
+                    "truncated": end < total,
+                }),
+            )
+        }
+        Err(e) => internal_error(req, &e.to_string()),
+    }
+}
+
+#[derive(Debug)]
+struct DocGapSnapshot {
+    scanned_symbols: u32,
+    eligible_symbols: u32,
+    documented_symbols: u32,
+    undocumented_symbols: Vec<Symbol>,
+    scan_complete: bool,
+}
+
+fn collect_doc_gap<R: Repository>(
+    repo: &R,
+    public_only: bool,
+    scan_limit: u32,
+) -> Result<DocGapSnapshot, sidecar_types::SidecarError> {
+    let mut scanned_symbols = Vec::new();
+    let mut offset = 0u32;
+    let mut scan_complete = false;
+
+    while (scanned_symbols.len() as u32) < scan_limit {
+        let remaining = scan_limit - scanned_symbols.len() as u32;
+        let page_limit = remaining.min(DOC_SCAN_PAGE_SIZE);
+        let page = repo.search_symbols(&SearchQuery {
+            query: String::new(),
+            limit: Limit::new(page_limit).expect("DOC_SCAN_PAGE_SIZE must be a valid limit"),
+            offset: Offset::new(offset),
+        })?;
+
+        if page.results.is_empty() {
+            scan_complete = true;
+            break;
+        }
+
+        offset = offset.saturating_add(page.results.len() as u32);
+        scanned_symbols.extend(page.results);
+    }
+
+    let mut eligible_symbols = 0u32;
+    let mut documented_symbols = 0u32;
+    let mut undocumented_symbols = Vec::new();
+
+    for sym in scanned_symbols.iter().cloned() {
+        if public_only && sym.visibility != Visibility::Public {
+            continue;
+        }
+        eligible_symbols = eligible_symbols.saturating_add(1);
+
+        if repo.get_doc(&sym.uid)?.is_some() {
+            documented_symbols = documented_symbols.saturating_add(1);
+        } else {
+            undocumented_symbols.push(sym);
+        }
+    }
+
+    undocumented_symbols.sort_by(|a, b| a.name.cmp(&b.name).then(a.uid.cmp(&b.uid)));
+
+    Ok(DocGapSnapshot {
+        scanned_symbols: scanned_symbols.len() as u32,
+        eligible_symbols,
+        documented_symbols,
+        undocumented_symbols,
+        scan_complete,
+    })
+}
+
 fn invalid_params(req: &JsonRpcRequest, message: &str) -> JsonRpcResponse {
     JsonRpcResponse::error(req.id.clone(), -32602, message.to_owned())
 }
@@ -282,6 +660,22 @@ fn parse_max_chars(params: &Value) -> Result<Option<usize>, String> {
     }
 }
 
+fn parse_public_only(params: &Value) -> Result<bool, String> {
+    match get_param(params, "public_only") {
+        None => Ok(true),
+        Some(Value::Bool(v)) => Ok(*v),
+        Some(_) => Err("'public_only' must be a boolean".to_owned()),
+    }
+}
+
+fn parse_scan_limit(params: &Value) -> Result<u32, String> {
+    match parse_optional_u32(params, "scan_limit")? {
+        None => Ok(DOC_SCAN_DEFAULT_LIMIT),
+        Some(0) => Err("'scan_limit' must be at least 1 when provided".to_owned()),
+        Some(v) => Ok(v),
+    }
+}
+
 fn parse_fields(params: &Value) -> Result<Option<Vec<String>>, String> {
     match get_param(params, "fields") {
         None => Ok(None),
@@ -317,6 +711,14 @@ fn parse_fields(params: &Value) -> Result<Option<Vec<String>>, String> {
     }
 }
 
+fn parse_optional_object_param(params: &Value, key: &str) -> Result<Option<Value>, String> {
+    match get_param(params, key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Object(obj)) => Ok(Some(Value::Object(obj.clone()))),
+        Some(_) => Err(format!("'{key}' must be an object")),
+    }
+}
+
 fn get_param<'a>(params: &'a Value, key: &str) -> Option<&'a Value> {
     params.as_object().and_then(|map| map.get(key))
 }
@@ -349,8 +751,17 @@ fn truncate_chars(value: &str, max_chars: usize) -> (String, bool) {
     }
 }
 
+fn round_percentage(numerator: u32, denominator: u32) -> f64 {
+    if denominator == 0 {
+        100.0
+    } else {
+        ((numerator as f64 / denominator as f64) * 10000.0).round() / 100.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
 
@@ -374,6 +785,7 @@ mod tests {
         refs_results: Vec<Reference>,
         refs_truncated: bool,
         doc: Option<DocRecord>,
+        docs_by_target: BTreeMap<Uid, DocRecord>,
     }
 
     impl Repository for MockRepo {
@@ -393,10 +805,33 @@ mod tests {
             Ok(None)
         }
 
-        fn search_symbols(&self, _query: &SearchQuery) -> Result<SearchResult, SidecarError> {
+        fn search_symbols(&self, query: &SearchQuery) -> Result<SearchResult, SidecarError> {
+            let normalized_query = query.query.to_lowercase();
+            let mut matched: Vec<Symbol> = self
+                .search_results
+                .iter()
+                .filter(|sym| {
+                    if normalized_query.is_empty() {
+                        true
+                    } else {
+                        sym.name.to_lowercase().contains(&normalized_query)
+                            || sym
+                                .qualified_name
+                                .to_lowercase()
+                                .contains(&normalized_query)
+                    }
+                })
+                .cloned()
+                .collect();
+            matched.sort_by(|a, b| a.name.cmp(&b.name).then(a.uid.cmp(&b.uid)));
+
+            let start = usize::min(query.offset.value() as usize, matched.len());
+            let end = usize::min(start + query.limit.value() as usize, matched.len());
+            let results = matched[start..end].to_vec();
+
             Ok(SearchResult {
-                results: self.search_results.clone(),
-                truncated: self.search_truncated,
+                results,
+                truncated: self.search_truncated || end < matched.len(),
             })
         }
 
@@ -412,7 +847,10 @@ mod tests {
             })
         }
 
-        fn get_doc(&self, _uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
+        fn get_doc(&self, uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
+            if let Some(doc) = self.docs_by_target.get(uid) {
+                return Ok(Some(doc.clone()));
+            }
             Ok(self.doc.clone())
         }
 
@@ -429,6 +867,24 @@ mod tests {
             qualified_name: "CartService".to_owned(),
             name: "CartService".to_owned(),
             visibility: Visibility::Public,
+            fingerprint: Fingerprint::from_hex(
+                "866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c".to_owned(),
+            ),
+            range: Range {
+                start: 10,
+                end: 100,
+            },
+        }
+    }
+
+    fn sample_symbol_with(uid: &str, name: &str, visibility: Visibility) -> Symbol {
+        Symbol {
+            uid: uid.parse().unwrap(),
+            file_uid: "file:src/cart.ts".parse().unwrap(),
+            kind: SymbolKind::Class,
+            qualified_name: name.to_owned(),
+            name: name.to_owned(),
+            visibility,
             fingerprint: Fingerprint::from_hex(
                 "866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c".to_owned(),
             ),
@@ -544,6 +1000,119 @@ mod tests {
     }
 
     #[test]
+    fn initialize_returns_mcp_capabilities() {
+        let repo = MockRepo::default();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(100),
+            method: "initialize".to_owned(),
+            params: serde_json::json!({
+                "protocolVersion": "2024-11-05"
+            }),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION);
+        assert_eq!(result["serverInfo"]["name"], "sidecar-mcp");
+        assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
+    }
+
+    #[test]
+    fn tools_list_returns_registered_tools() {
+        let repo = MockRepo::default();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(101),
+            method: "tools/list".to_owned(),
+            params: serde_json::json!({}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        let tools = result["tools"].as_array().unwrap();
+        assert!(tools.iter().any(|t| t["name"] == "search_symbols"));
+        assert!(tools.iter().any(|t| t["name"] == "coverage_metrics"));
+        assert!(tools
+            .iter()
+            .any(|t| t["name"] == "detect_undocumented_symbols"));
+    }
+
+    #[test]
+    fn tools_call_wraps_structured_content() {
+        let repo = MockRepo {
+            search_results: vec![sample_symbol()],
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(102),
+            method: "tools/call".to_owned(),
+            params: serde_json::json!({
+                "name": "search_symbols",
+                "arguments": {
+                    "query":"CartService",
+                    "limit": 1
+                }
+            }),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        assert_eq!(result["isError"], false);
+        assert_eq!(
+            result["structuredContent"]["results"][0]["name"],
+            "CartService"
+        );
+        assert_eq!(result["content"][0]["type"], "text");
+        assert!(result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("CartService"));
+    }
+
+    #[test]
+    fn tools_call_validates_params_and_tool_name() {
+        let repo = MockRepo::default();
+
+        let missing_name = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(103),
+            method: "tools/call".to_owned(),
+            params: serde_json::json!({}),
+        };
+        let resp = dispatch(&repo, &missing_name, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_args_type = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(104),
+            method: "tools/call".to_owned(),
+            params: serde_json::json!({
+                "name": "search_symbols",
+                "arguments": "bad"
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_args_type, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let unknown_tool = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(105),
+            method: "tools/call".to_owned(),
+            params: serde_json::json!({
+                "name": "does_not_exist",
+                "arguments": {}
+            }),
+        };
+        let resp = dispatch(&repo, &unknown_tool, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32601);
+    }
+
+    #[test]
     fn search_symbols_applies_field_selection() {
         let repo = MockRepo {
             search_results: vec![sample_symbol()],
@@ -599,6 +1168,129 @@ mod tests {
             params: serde_json::json!({"query":"x", "fields": ["uid", 1]}),
         };
         let resp = dispatch(&repo, &invalid_fields, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+    }
+
+    #[test]
+    fn coverage_metrics_reports_public_doc_coverage() {
+        let documented = sample_symbol_with(
+            "sym:ts:src/cart:ADocumented:11111111",
+            "ADocumented",
+            Visibility::Public,
+        );
+        let undocumented = sample_symbol_with(
+            "sym:ts:src/cart:BUndocumented:22222222",
+            "BUndocumented",
+            Visibility::Public,
+        );
+        let private = sample_symbol_with(
+            "sym:ts:src/cart:CPrivate:33333333",
+            "CPrivate",
+            Visibility::Private,
+        );
+
+        let mut docs_by_target = BTreeMap::new();
+        docs_by_target.insert(
+            documented.uid.clone(),
+            DocRecord {
+                target_uid: documented.uid.clone(),
+                ..sample_doc("docs-sidecar/symbols/doc-a.md")
+            },
+        );
+
+        let repo = MockRepo {
+            search_results: vec![undocumented.clone(), private, documented.clone()],
+            docs_by_target,
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(10),
+            method: "coverage_metrics".to_owned(),
+            params: serde_json::json!({"public_only": true, "scan_limit": 50}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        assert_eq!(result["eligible_symbols"], 2);
+        assert_eq!(result["documented_symbols"], 1);
+        assert_eq!(result["undocumented_symbols"], 1);
+        assert_eq!(result["coverage_pct"], 50.0);
+        assert_eq!(result["scan_complete"], true);
+    }
+
+    #[test]
+    fn detect_undocumented_symbols_returns_paginated_results() {
+        let a = sample_symbol_with(
+            "sym:ts:src/cart:Alpha:aaaaaaaa",
+            "Alpha",
+            Visibility::Public,
+        );
+        let b = sample_symbol_with("sym:ts:src/cart:Beta:bbbbbbbb", "Beta", Visibility::Public);
+        let c = sample_symbol_with(
+            "sym:ts:src/cart:Gamma:cccccccc",
+            "Gamma",
+            Visibility::Public,
+        );
+
+        let mut docs_by_target = BTreeMap::new();
+        docs_by_target.insert(
+            b.uid.clone(),
+            DocRecord {
+                target_uid: b.uid.clone(),
+                ..sample_doc("docs-sidecar/symbols/doc-b.md")
+            },
+        );
+
+        let repo = MockRepo {
+            search_results: vec![c.clone(), a.clone(), b.clone()],
+            docs_by_target,
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(11),
+            method: "detect_undocumented_symbols".to_owned(),
+            params: serde_json::json!({
+                "limit": 1,
+                "offset": 1,
+                "fields": ["uid", "name"],
+                "public_only": true,
+                "scan_limit": 50
+            }),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        assert_eq!(result["undocumented_total"], 2);
+        assert_eq!(result["results"][0]["uid"], c.uid.as_str());
+        assert_eq!(result["results"][0]["name"], "Gamma");
+        assert!(result["results"][0]["kind"].is_null());
+        assert_eq!(result["truncated"], false);
+    }
+
+    #[test]
+    fn doc_gap_tools_validate_params() {
+        let repo = MockRepo::default();
+
+        let invalid_public_only = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(12),
+            method: "coverage_metrics".to_owned(),
+            params: serde_json::json!({"public_only": "yes"}),
+        };
+        let resp = dispatch(&repo, &invalid_public_only, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_scan_limit = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(13),
+            method: "detect_undocumented_symbols".to_owned(),
+            params: serde_json::json!({"scan_limit": 0}),
+        };
+        let resp = dispatch(&repo, &invalid_scan_limit, Path::new("."));
         assert_eq!(resp.error.unwrap().code, -32602);
     }
 
@@ -921,6 +1613,13 @@ This is a long overview body for deterministic truncation tests.
         assert!(parse_mode(&serde_json::json!({"mode":"raw"})).is_err());
         assert!(parse_mode(&serde_json::json!({"mode":1})).is_err());
         assert!(parse_max_chars(&serde_json::json!({"max_chars":0})).is_err());
+        assert!(parse_public_only(&serde_json::json!({"public_only":"yes"})).is_err());
+        assert_eq!(parse_public_only(&serde_json::json!({})).unwrap(), true);
+        assert_eq!(
+            parse_scan_limit(&serde_json::json!({})).unwrap(),
+            DOC_SCAN_DEFAULT_LIMIT
+        );
+        assert!(parse_scan_limit(&serde_json::json!({"scan_limit":0})).is_err());
 
         assert_eq!(
             parse_fields(&serde_json::json!({"fields":"uid,name"}))
@@ -940,6 +1639,15 @@ This is a long overview body for deterministic truncation tests.
         assert!(parse_fields(&serde_json::json!({"fields":[] })).is_err());
         assert!(parse_fields(&serde_json::json!({"fields":1})).is_err());
 
+        assert!(parse_optional_object_param(&serde_json::json!({"a":"x"}), "a").is_err());
+        assert!(parse_optional_object_param(&serde_json::json!({}), "a")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            parse_optional_object_param(&serde_json::json!({"a":{"k":"v"}}), "a").unwrap(),
+            Some(serde_json::json!({"k":"v"}))
+        );
+
         assert_eq!(
             select_fields(
                 serde_json::json!({"uid":"u","name":"n","kind":"class"}),
@@ -954,6 +1662,8 @@ This is a long overview body for deterministic truncation tests.
 
         assert_eq!(truncate_chars("abc", 5), ("abc".to_owned(), false));
         assert_eq!(truncate_chars("abcdef", 3), ("abc".to_owned(), true));
+        assert_eq!(round_percentage(1, 2), 50.0);
+        assert_eq!(round_percentage(0, 0), 100.0);
     }
 
     #[test]
@@ -968,6 +1678,43 @@ This is a long overview body for deterministic truncation tests.
             .is_none());
         repo.upsert_docs(&[sample_doc("docs-sidecar/symbols/doc-cart.md")])
             .unwrap();
+    }
+
+    #[test]
+    fn snapshot_tools_list_response() {
+        let repo = MockRepo::default();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(41),
+            method: "tools/list".to_owned(),
+            params: serde_json::json!({}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert_yaml_snapshot!("tools_list_response", resp);
+    }
+
+    #[test]
+    fn snapshot_tools_call_response() {
+        let repo = MockRepo {
+            search_results: vec![sample_symbol()],
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(40),
+            method: "tools/call".to_owned(),
+            params: serde_json::json!({
+                "name": "search_symbols",
+                "arguments": {
+                    "query":"CartService",
+                    "limit": 1
+                }
+            }),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert_yaml_snapshot!("tools_call_response", resp);
     }
 
     #[test]
@@ -1047,6 +1794,78 @@ This is a long overview body for deterministic truncation tests.
 
         let resp = dispatch(&repo, &req, Path::new("."));
         assert_yaml_snapshot!("get_documentation_response", resp);
+    }
+
+    #[test]
+    fn snapshot_coverage_metrics_response() {
+        let documented = sample_symbol_with(
+            "sym:ts:src/cart:ADocumented:11111111",
+            "ADocumented",
+            Visibility::Public,
+        );
+        let undocumented = sample_symbol_with(
+            "sym:ts:src/cart:BUndocumented:22222222",
+            "BUndocumented",
+            Visibility::Public,
+        );
+        let mut docs_by_target = BTreeMap::new();
+        docs_by_target.insert(
+            documented.uid.clone(),
+            DocRecord {
+                target_uid: documented.uid.clone(),
+                ..sample_doc("docs-sidecar/symbols/doc-a.md")
+            },
+        );
+        let repo = MockRepo {
+            search_results: vec![documented, undocumented],
+            docs_by_target,
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(31),
+            method: "coverage_metrics".to_owned(),
+            params: serde_json::json!({}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert_yaml_snapshot!("coverage_metrics_response", resp);
+    }
+
+    #[test]
+    fn snapshot_detect_undocumented_symbols_response() {
+        let documented = sample_symbol_with(
+            "sym:ts:src/cart:ADocumented:11111111",
+            "ADocumented",
+            Visibility::Public,
+        );
+        let undocumented = sample_symbol_with(
+            "sym:ts:src/cart:BUndocumented:22222222",
+            "BUndocumented",
+            Visibility::Public,
+        );
+        let mut docs_by_target = BTreeMap::new();
+        docs_by_target.insert(
+            documented.uid.clone(),
+            DocRecord {
+                target_uid: documented.uid.clone(),
+                ..sample_doc("docs-sidecar/symbols/doc-a.md")
+            },
+        );
+        let repo = MockRepo {
+            search_results: vec![documented, undocumented],
+            docs_by_target,
+            ..Default::default()
+        };
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(32),
+            method: "detect_undocumented_symbols".to_owned(),
+            params: serde_json::json!({"limit": 10, "offset": 0}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert_yaml_snapshot!("detect_undocumented_symbols_response", resp);
     }
 
     #[test]

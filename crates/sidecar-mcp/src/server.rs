@@ -43,18 +43,27 @@ impl<R: Repository> McpServer<R> {
                 continue;
             }
 
-            let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
-                Ok(req) => tools::dispatch(&self.repo, &req, &self.root),
-                Err(e) => JsonRpcResponse::error(
-                    serde_json::Value::Null,
-                    -32700,
-                    format!("Parse error: {e}"),
+            let parsed = serde_json::from_str::<JsonRpcRequest>(&line);
+            let (response, should_reply) = match parsed {
+                Ok(req) => {
+                    let should_reply = !req.id.is_null();
+                    (tools::dispatch(&self.repo, &req, &self.root), should_reply)
+                }
+                Err(e) => (
+                    JsonRpcResponse::error(
+                        serde_json::Value::Null,
+                        -32700,
+                        format!("Parse error: {e}"),
+                    ),
+                    true,
                 ),
             };
 
-            let out = serde_json::to_string(&response).unwrap();
-            writeln!(writer, "{out}")?;
-            writer.flush()?;
+            if should_reply {
+                let out = serde_json::to_string(&response).unwrap();
+                writeln!(writer, "{out}")?;
+                writer.flush()?;
+            }
         }
 
         Ok(())
@@ -143,5 +152,16 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("\"jsonrpc\":\"2.0\""));
         assert!(text.contains("\"results\":[]"));
+    }
+
+    #[test]
+    fn skips_reply_for_notification_without_id() {
+        let server = McpServer::new(MockRepo, std::path::Path::new("."));
+        let input = Cursor::new("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}\n");
+        let mut output = Vec::new();
+
+        server.run_with_io(input, &mut output).unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.trim().is_empty());
     }
 }

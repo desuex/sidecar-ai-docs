@@ -63,18 +63,23 @@ It is an interface layer.
 
 ## 4. Core MCP Tools
 
-The following tools must be exposed:
+Current MVP tools:
 
 1. get_symbol
 2. find_references
 3. get_documentation
 4. search_symbols
-5. impact_analysis
-6. validate_anchors
-7. list_unresolved_docs
-8. get_concept
-9. search_docs
-10. get_file_summary
+5. coverage_metrics
+6. detect_undocumented_symbols
+
+Planned additions:
+
+1. impact_analysis
+2. validate_anchors
+3. list_unresolved_docs
+4. get_concept
+5. search_docs
+6. get_file_summary
 
 Each tool must:
 
@@ -208,7 +213,70 @@ Relevance must be deterministic.
 
 ---
 
-### 5.5 impact_analysis
+### 5.5 coverage_metrics
+
+Compute documentation coverage from indexed symbols.
+
+Input:
+
+```json
+{
+  "public_only": true,
+  "scan_limit": 5000
+}
+```
+
+Output:
+
+```json
+{
+  "public_only": true,
+  "scan_limit": 5000,
+  "scan_complete": true,
+  "scanned_symbols": 124,
+  "eligible_symbols": 97,
+  "documented_symbols": 71,
+  "undocumented_symbols": 26,
+  "coverage_pct": 73.2
+}
+```
+
+---
+
+### 5.6 detect_undocumented_symbols
+
+Return undocumented symbols in deterministic order.
+
+Input:
+
+```json
+{
+  "public_only": true,
+  "scan_limit": 5000,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Output:
+
+```json
+{
+  "undocumented_total": 26,
+  "results": [
+    {
+      "uid": "...",
+      "name": "...",
+      "kind": "function"
+    }
+  ],
+  "truncated": true
+}
+```
+
+---
+
+### 5.7 impact_analysis
 
 Find affected symbols.
 
@@ -236,7 +304,7 @@ Depth parameter optional.
 
 ---
 
-### 5.6 validate_anchors
+### 5.8 validate_anchors
 
 Input:
 
@@ -258,7 +326,7 @@ Output:
 
 ---
 
-### 5.7 list_unresolved_docs
+### 5.9 list_unresolved_docs
 
 Output:
 
@@ -275,13 +343,13 @@ Output:
 
 ---
 
-### 5.8 get_concept
+### 5.10 get_concept
 
 Retrieve concept.
 
 ---
 
-### 5.9 search_docs
+### 5.11 search_docs
 
 Search documentation by content.
 
@@ -293,7 +361,7 @@ Must support:
 
 ---
 
-### 5.10 get_file_summary
+### 5.12 get_file_summary
 
 Return summary metadata only.
 
@@ -432,8 +500,6 @@ Future MCP tools may include:
 
 * suggest_documentation
 * generate_summary
-* detect_undocumented_symbols
-* coverage_metrics
 * graph_export
 
 LLM-powered tools must not override deterministic tools.

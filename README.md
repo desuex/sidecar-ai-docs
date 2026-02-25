@@ -83,6 +83,7 @@ CLI / MCP / IDE / Export
 * Offline index support (LSIF/SCIP)
 * CLI interface
 * MCP server for AI agents
+* MCP doc coverage tools (`coverage_metrics`, `detect_undocumented_symbols`)
 * VS Code extension
 * JetBrains plugin
 * Structured token-minimal responses
@@ -194,6 +195,11 @@ The script:
 * generates `lcov.info` with `cargo llvm-cov`
 * computes line coverage from LCOV data
 * fails if coverage drops below `90%` (configurable via `MIN_COVERAGE`)
+
+Documentation coverage non-regression is also gated in CI using MCP:
+
+* `./scripts/ci/doc_coverage_gate.sh`
+* baseline config: `scripts/ci/doc_coverage_baseline.env`
 
 ---
 

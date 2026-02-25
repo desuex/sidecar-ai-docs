@@ -1,0 +1,15 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 31
+result:
+  coverage_pct: 50
+  documented_symbols: 1
+  eligible_symbols: 2
+  public_only: true
+  scan_complete: true
+  scan_limit: 5000
+  scanned_symbols: 2
+  undocumented_symbols: 1

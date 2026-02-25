@@ -386,7 +386,7 @@ Future additions:
 * Semantic ranking enhancements
 * Embedding-based search (optional)
 * AI-assisted summarization tools
-* Documentation coverage metrics
+* Documentation coverage trend analysis
 * Graph traversal API
 
 Extensions must preserve determinism for core tools.

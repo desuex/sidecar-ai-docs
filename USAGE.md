@@ -70,7 +70,25 @@ Optional custom index DB path:
 sidecar export mkdocs --root . --out docs/generated --index-db .sidecar/index.sqlite
 ```
 
-### 8) Run quality gates locally
+### 8) Drive self-documentation targets via MCP
+
+Use this to measure current documentation coverage and pull a bounded queue of undocumented symbols.
+
+```bash
+printf '%s\n' \
+'{"jsonrpc":"2.0","id":1,"method":"coverage_metrics","params":{"public_only":true,"scan_limit":5000}}' \
+| sidecar --root . mcp --log-level error
+```
+
+```bash
+printf '%s\n' \
+'{"jsonrpc":"2.0","id":2,"method":"detect_undocumented_symbols","params":{"public_only":true,"scan_limit":5000,"limit":25,"offset":0}}' \
+| sidecar --root . mcp --log-level error
+```
+
+Use the returned symbol UIDs with `get_symbol`, `find_references`, and `get_documentation` to draft focused updates.
+
+### 9) Run quality gates locally
 
 Use this before pushing changes.
 
@@ -79,6 +97,8 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all --all-features
 ./scripts/ci/coverage.sh
+./scripts/ci/doc_coverage_gate.sh
+./scripts/ci/mcp_smoke.sh
 mkdocs build --strict
 ```
 

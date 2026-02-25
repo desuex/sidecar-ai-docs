@@ -102,8 +102,32 @@ Status must be stored in metadata and validated by Sidecar.
 
 ### Step 1 — Identify Targets
 
-```bash
-sidecar coverage --json
+Use MCP to measure documentation coverage and fetch a bounded backlog:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "coverage_metrics",
+  "params": {
+    "public_only": true,
+    "scan_limit": 5000
+  }
+}
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "detect_undocumented_symbols",
+  "params": {
+    "public_only": true,
+    "scan_limit": 5000,
+    "limit": 100,
+    "offset": 0
+  }
+}
 ```
 
 Select:

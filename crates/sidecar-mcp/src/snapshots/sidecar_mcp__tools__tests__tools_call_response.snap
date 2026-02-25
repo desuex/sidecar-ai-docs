@@ -1,0 +1,24 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 40
+result:
+  content:
+    - text: "{\n  \"results\": [\n    {\n      \"file_uid\": \"file:src/cart.ts\",\n      \"fingerprint\": \"866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c\",\n      \"kind\": \"class\",\n      \"name\": \"CartService\",\n      \"qualified_name\": \"CartService\",\n      \"range\": {\n        \"end\": 100,\n        \"start\": 10\n      },\n      \"uid\": \"sym:ts:src/cart:CartService:866eb7ea\",\n      \"visibility\": \"public\"\n    }\n  ],\n  \"truncated\": false\n}"
+      type: text
+  isError: false
+  structuredContent:
+    results:
+      - file_uid: "file:src/cart.ts"
+        fingerprint: 866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c
+        kind: class
+        name: CartService
+        qualified_name: CartService
+        range:
+          end: 100
+          start: 10
+        uid: "sym:ts:src/cart:CartService:866eb7ea"
+        visibility: public
+    truncated: false
