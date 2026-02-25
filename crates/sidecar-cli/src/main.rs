@@ -137,7 +137,7 @@ fn init_logging(cli: &Cli) {
         tracing_subscriber::fmt()
             .with_writer(std::io::stderr)
             .with_env_filter(filter)
-            .compact()
+            .json()
             .init();
     } else {
         tracing_subscriber::fmt()
