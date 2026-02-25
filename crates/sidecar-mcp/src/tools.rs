@@ -459,6 +459,58 @@ mod tests {
         }
     }
 
+    fn sample_file() -> FileRecord {
+        FileRecord {
+            file_uid: "file:src/cart.ts".parse().unwrap(),
+            path: "src/cart.ts".parse().unwrap(),
+            language: Language::TypeScript,
+            content_hash: ContentHash::from_hex(
+                "4f6ccf7f647ce84b88f72185f7f00fd9f235f28f34dd30a2cbf95d8f6f64e592".to_owned(),
+            ),
+            last_indexed_at: "2026-01-01T00:00:00Z".to_owned(),
+        }
+    }
+
+    struct ErrorRepo;
+
+    impl Repository for ErrorRepo {
+        fn upsert_file(&self, _file: &FileRecord) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn upsert_symbols(&self, _symbols: &[Symbol]) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn upsert_refs(&self, _refs: &[Reference]) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn get_file_by_path(&self, _path: &PathRel) -> Result<Option<FileRecord>, SidecarError> {
+            Ok(None)
+        }
+
+        fn search_symbols(&self, _query: &SearchQuery) -> Result<SearchResult, SidecarError> {
+            Err(SidecarError::Index("forced search failure".to_owned()))
+        }
+
+        fn get_symbol(&self, _uid: &Uid) -> Result<Option<Symbol>, SidecarError> {
+            Err(SidecarError::Index("forced symbol failure".to_owned()))
+        }
+
+        fn find_refs(&self, _uid: &Uid, _query: &RefsQuery) -> Result<RefsResult, SidecarError> {
+            Err(SidecarError::Index("forced refs failure".to_owned()))
+        }
+
+        fn get_doc(&self, _uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
+            Err(SidecarError::Index("forced doc failure".to_owned()))
+        }
+
+        fn upsert_docs(&self, _docs: &[DocRecord]) -> Result<(), SidecarError> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn rejects_invalid_jsonrpc_version() {
         let repo = MockRepo::default();
@@ -472,6 +524,23 @@ mod tests {
         let resp = dispatch(&repo, &req, Path::new("."));
         assert!(resp.result.is_none());
         assert_eq!(resp.error.unwrap().code, -32600);
+    }
+
+    #[test]
+    fn rejects_unknown_method() {
+        let repo = MockRepo::default();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(99),
+            method: "not_a_method".to_owned(),
+            params: serde_json::json!({}),
+        };
+
+        let resp = dispatch(&repo, &req, Path::new("."));
+        assert!(resp.result.is_none());
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32601);
+        assert!(err.message.contains("Method not found"));
     }
 
     #[test]
@@ -499,6 +568,38 @@ mod tests {
         );
         assert_eq!(result["results"][0]["name"], "CartService");
         assert!(result["results"][0].get("kind").is_none());
+    }
+
+    #[test]
+    fn search_symbols_validates_params() {
+        let repo = MockRepo::default();
+
+        let missing_query = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(1),
+            method: "search_symbols".to_owned(),
+            params: serde_json::json!({"limit": 10}),
+        };
+        let resp = dispatch(&repo, &missing_query, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_limit = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(2),
+            method: "search_symbols".to_owned(),
+            params: serde_json::json!({"query": "x", "limit": "nope"}),
+        };
+        let resp = dispatch(&repo, &invalid_limit, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_fields = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(3),
+            method: "search_symbols".to_owned(),
+            params: serde_json::json!({"query":"x", "fields": ["uid", 1]}),
+        };
+        let resp = dispatch(&repo, &invalid_fields, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
     }
 
     #[test]
@@ -540,6 +641,33 @@ mod tests {
         let result = resp.result.unwrap();
         assert_eq!(result["total"], 1);
         assert_eq!(result["results"][0]["ref_kind"], "type_ref");
+    }
+
+    #[test]
+    fn find_references_validates_uid_and_fields() {
+        let repo = MockRepo::default();
+        let invalid_uid = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(1),
+            method: "find_references".to_owned(),
+            params: serde_json::json!({
+                "uid":"bad uid"
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_uid, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_fields = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(2),
+            method: "find_references".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "fields": 1
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_fields, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
     }
 
     #[test]
@@ -614,6 +742,232 @@ This is a long overview body for deterministic truncation tests.
         assert_eq!(result["exists"], true);
         assert_eq!(result["truncated"], true);
         assert_eq!(result["content"].as_str().unwrap().chars().count(), 24);
+    }
+
+    #[test]
+    fn get_symbol_handles_not_found_and_validation_errors() {
+        let repo = MockRepo::default();
+        let not_found = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(1),
+            method: "get_symbol".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:Missing:abcd1234"
+            }),
+        };
+        let resp = dispatch(&repo, &not_found, Path::new("."));
+        assert!(resp.error.is_none());
+        assert!(resp.result.unwrap()["symbol"].is_null());
+
+        let invalid_uid = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(2),
+            method: "get_symbol".to_owned(),
+            params: serde_json::json!({
+                "uid":"bad uid"
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_uid, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_fields = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(3),
+            method: "get_symbol".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "fields":" , "
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_fields, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+    }
+
+    #[test]
+    fn get_documentation_covers_not_found_validation_and_read_errors() {
+        let repo = MockRepo::default();
+
+        let not_found = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(1),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea"
+            }),
+        };
+        let resp = dispatch(&repo, &not_found, Path::new("."));
+        assert!(resp.error.is_none());
+        assert_eq!(resp.result.unwrap()["exists"], false);
+
+        let invalid_mode = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(2),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "mode":"raw"
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_mode, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_mode_type = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(3),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "mode": 1
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_mode_type, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let invalid_max_chars = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(4),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "max_chars": 0
+            }),
+        };
+        let resp = dispatch(&repo, &invalid_max_chars, Path::new("."));
+        assert_eq!(resp.error.unwrap().code, -32602);
+
+        let temp = tempfile::tempdir().unwrap();
+        let missing_doc_repo = MockRepo {
+            doc: Some(sample_doc("docs-sidecar/missing.md")),
+            ..Default::default()
+        };
+        let read_err = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(5),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({
+                "uid":"sym:ts:src/cart:CartService:866eb7ea",
+                "mode":"full"
+            }),
+        };
+        let resp = dispatch(&missing_doc_repo, &read_err, temp.path());
+        assert!(resp.result.is_none());
+        assert_eq!(resp.error.unwrap().code, -32000);
+    }
+
+    #[test]
+    fn propagates_internal_errors_from_repository() {
+        let repo = ErrorRepo;
+        let root = Path::new(".");
+
+        let search_req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(1),
+            method: "search_symbols".to_owned(),
+            params: serde_json::json!({"query":"Cart"}),
+        };
+        assert_eq!(
+            dispatch(&repo, &search_req, root).error.unwrap().code,
+            -32000
+        );
+
+        let symbol_req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(2),
+            method: "get_symbol".to_owned(),
+            params: serde_json::json!({"uid":"sym:ts:src/cart:CartService:866eb7ea"}),
+        };
+        assert_eq!(
+            dispatch(&repo, &symbol_req, root).error.unwrap().code,
+            -32000
+        );
+
+        let refs_req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(3),
+            method: "find_references".to_owned(),
+            params: serde_json::json!({"uid":"sym:ts:src/cart:CartService:866eb7ea"}),
+        };
+        assert_eq!(dispatch(&repo, &refs_req, root).error.unwrap().code, -32000);
+
+        let doc_req = JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: serde_json::json!(4),
+            method: "get_documentation".to_owned(),
+            params: serde_json::json!({"uid":"sym:ts:src/cart:CartService:866eb7ea"}),
+        };
+        assert_eq!(dispatch(&repo, &doc_req, root).error.unwrap().code, -32000);
+    }
+
+    #[test]
+    fn helper_parsers_cover_edge_cases() {
+        assert_eq!(
+            parse_required_string(&serde_json::json!({"query":"x"}), "query").unwrap(),
+            "x"
+        );
+        assert!(parse_required_string(&serde_json::json!({"query":""}), "query").is_err());
+        assert!(parse_required_string(&serde_json::json!({"query":1}), "query").is_err());
+        assert!(parse_required_string(&serde_json::json!({}), "query").is_err());
+
+        assert!(parse_optional_u32(&serde_json::json!({"n":-1}), "n").is_err());
+        assert!(parse_optional_u32(&serde_json::json!({"n":"x"}), "n").is_err());
+        assert!(parse_optional_u32(&serde_json::json!({}), "n")
+            .unwrap()
+            .is_none());
+
+        assert_eq!(
+            parse_mode(&serde_json::json!({})).unwrap(),
+            "summary".to_owned()
+        );
+        assert!(parse_mode(&serde_json::json!({"mode":"raw"})).is_err());
+        assert!(parse_mode(&serde_json::json!({"mode":1})).is_err());
+        assert!(parse_max_chars(&serde_json::json!({"max_chars":0})).is_err());
+
+        assert_eq!(
+            parse_fields(&serde_json::json!({"fields":"uid,name"}))
+                .unwrap()
+                .unwrap(),
+            vec!["uid".to_owned(), "name".to_owned()]
+        );
+        assert!(parse_fields(&serde_json::json!({"fields":" , " })).is_err());
+        assert_eq!(
+            parse_fields(&serde_json::json!({"fields":["uid"," name "]}))
+                .unwrap()
+                .unwrap(),
+            vec!["uid".to_owned(), "name".to_owned()]
+        );
+        assert!(parse_fields(&serde_json::json!({"fields":[""]})).is_err());
+        assert!(parse_fields(&serde_json::json!({"fields":[1]})).is_err());
+        assert!(parse_fields(&serde_json::json!({"fields":[] })).is_err());
+        assert!(parse_fields(&serde_json::json!({"fields":1})).is_err());
+
+        assert_eq!(
+            select_fields(
+                serde_json::json!({"uid":"u","name":"n","kind":"class"}),
+                Some(&["uid".to_owned(), "name".to_owned()])
+            ),
+            serde_json::json!({"uid":"u","name":"n"})
+        );
+        assert_eq!(
+            select_fields(Value::String("x".to_owned()), Some(&["uid".to_owned()])),
+            Value::String("x".to_owned())
+        );
+
+        assert_eq!(truncate_chars("abc", 5), ("abc".to_owned(), false));
+        assert_eq!(truncate_chars("abcdef", 3), ("abc".to_owned(), true));
+    }
+
+    #[test]
+    fn mock_repo_noop_methods_are_callable() {
+        let repo = MockRepo::default();
+        repo.upsert_file(&sample_file()).unwrap();
+        repo.upsert_symbols(&[sample_symbol()]).unwrap();
+        repo.upsert_refs(&[sample_ref()]).unwrap();
+        assert!(repo
+            .get_file_by_path(&"src/cart.ts".parse().unwrap())
+            .unwrap()
+            .is_none());
+        repo.upsert_docs(&[sample_doc("docs-sidecar/symbols/doc-cart.md")])
+            .unwrap();
     }
 
     #[test]

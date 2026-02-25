@@ -29,3 +29,17 @@ impl SidecarError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SidecarError;
+
+    #[test]
+    fn stable_exit_codes() {
+        assert_eq!(SidecarError::Validation("x".to_owned()).exit_code(), 2);
+        assert_eq!(SidecarError::Index("x".to_owned()).exit_code(), 3);
+        assert_eq!(SidecarError::Parse("x".to_owned()).exit_code(), 4);
+        assert_eq!(SidecarError::NotFound("x".to_owned()).exit_code(), 1);
+        assert_eq!(SidecarError::Internal("x".to_owned()).exit_code(), 5);
+    }
+}

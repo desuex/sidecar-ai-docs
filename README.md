@@ -173,6 +173,22 @@ Exporter implementation plan:
 
 ---
 
+## Test Coverage (Codecov)
+
+Coverage reporting is integrated with Codecov and gated at **90% line coverage**.
+
+Local coverage command:
+
+* `./scripts/ci/coverage.sh`
+
+The script:
+
+* generates `lcov.info` with `cargo llvm-cov`
+* computes line coverage from LCOV data
+* fails if coverage drops below `90%` (configurable via `MIN_COVERAGE`)
+
+---
+
 ## License
 
 See LICENSE file.

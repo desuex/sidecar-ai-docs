@@ -26,3 +26,27 @@ impl fmt::Display for Language {
         f.write_str(self.code())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Language;
+
+    #[test]
+    fn language_code_and_display() {
+        assert_eq!(Language::TypeScript.code(), "ts");
+        assert_eq!(Language::JavaScript.code(), "js");
+        assert_eq!(Language::Rust.code(), "rs");
+
+        assert_eq!(Language::TypeScript.to_string(), "ts");
+        assert_eq!(Language::JavaScript.to_string(), "js");
+        assert_eq!(Language::Rust.to_string(), "rs");
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let encoded = serde_json::to_string(&Language::TypeScript).unwrap();
+        assert_eq!(encoded, "\"typescript\"");
+        let decoded: Language = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, Language::TypeScript);
+    }
+}

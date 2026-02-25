@@ -132,6 +132,10 @@ All new code must:
 
 Security regressions block merge.
 
+Coverage gate:
+	•	CI enforces a minimum **90% line coverage** threshold.
+	•	Local command: `./scripts/ci/coverage.sh`
+
 ⸻
 
 6. Test Requirements

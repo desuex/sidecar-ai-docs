@@ -629,6 +629,7 @@ dependencies = [
  "sidecar-parsing",
  "sidecar-storage",
  "sidecar-types",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

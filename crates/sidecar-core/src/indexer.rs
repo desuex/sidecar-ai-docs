@@ -415,3 +415,178 @@ fn chrono_lite_now() -> String {
     // They are excluded from UID/fingerprint computation.
     "1970-01-01T00:00:00Z".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::fs;
+
+    use sidecar_types::{PathRel, SidecarError, Uid};
+
+    use super::*;
+    use crate::model::{DocRecord, FileRecord, Reference, Symbol};
+    use crate::query::{RefsQuery, RefsResult, SearchQuery, SearchResult};
+    use crate::Repository;
+
+    #[derive(Default)]
+    struct MockRepo {
+        docs: RefCell<Vec<DocRecord>>,
+    }
+
+    impl Repository for MockRepo {
+        fn upsert_file(&self, _file: &FileRecord) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn upsert_symbols(&self, _symbols: &[Symbol]) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn upsert_refs(&self, _refs: &[Reference]) -> Result<(), SidecarError> {
+            Ok(())
+        }
+
+        fn get_file_by_path(&self, _path: &PathRel) -> Result<Option<FileRecord>, SidecarError> {
+            Ok(None)
+        }
+
+        fn search_symbols(&self, _query: &SearchQuery) -> Result<SearchResult, SidecarError> {
+            Ok(SearchResult {
+                results: Vec::new(),
+                truncated: false,
+            })
+        }
+
+        fn get_symbol(&self, _uid: &Uid) -> Result<Option<Symbol>, SidecarError> {
+            Ok(None)
+        }
+
+        fn find_refs(&self, _uid: &Uid, _query: &RefsQuery) -> Result<RefsResult, SidecarError> {
+            Ok(RefsResult {
+                total: 0,
+                results: Vec::new(),
+                truncated: false,
+            })
+        }
+
+        fn get_doc(&self, uid: &Uid) -> Result<Option<DocRecord>, SidecarError> {
+            Ok(self
+                .docs
+                .borrow()
+                .iter()
+                .find(|doc| &doc.target_uid == uid)
+                .cloned())
+        }
+
+        fn upsert_docs(&self, docs: &[DocRecord]) -> Result<(), SidecarError> {
+            self.docs.borrow_mut().extend(docs.iter().cloned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn hidden_and_ignored_names() {
+        assert!(is_hidden_or_ignored(".git"));
+        assert!(is_hidden_or_ignored("node_modules"));
+        assert!(is_hidden_or_ignored("target"));
+        assert!(!is_hidden_or_ignored("src"));
+    }
+
+    #[test]
+    fn index_project_with_no_adapters_skips_supported_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let src_dir = temp.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("sample.ts"),
+            "export function sample() { return 1; }",
+        )
+        .unwrap();
+
+        let repo = MockRepo::default();
+        let adapters: Vec<&dyn sidecar_parsing::LanguageAdapter> = Vec::new();
+        let result = index_project(temp.path(), &repo, &adapters).unwrap();
+
+        assert_eq!(result.files_indexed, 0);
+        assert_eq!(result.symbols_extracted, 0);
+        assert_eq!(result.refs_extracted, 0);
+    }
+
+    #[test]
+    fn index_docs_missing_directory_returns_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = MockRepo::default();
+
+        let result = index_docs(temp.path(), "docs-sidecar", &repo).unwrap();
+        assert_eq!(result.docs_indexed, 0);
+    }
+
+    #[test]
+    fn index_docs_indexes_symbol_anchors_and_skips_invalid_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let docs_dir = temp.path().join("docs-sidecar");
+        fs::create_dir_all(&docs_dir).unwrap();
+
+        fs::write(
+            docs_dir.join("valid.md"),
+            r#"---
+doc_uid: doc:valid-overview
+title: Valid Doc
+anchors:
+  - anchor_type: symbol
+    symbol_uid: sym:ts:src/cart:CartService:866eb7ea
+---
+
+## Overview
+
+A valid summary.
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            docs_dir.join("selector-only.md"),
+            r#"---
+doc_uid: doc:selector-only
+title: Selector Doc
+anchors:
+  - anchor_type: selector
+---
+
+## Overview
+
+Selector content.
+"#,
+        )
+        .unwrap();
+
+        fs::write(docs_dir.join("invalid.md"), "not sidecar front matter").unwrap();
+
+        fs::write(
+            docs_dir.join("bad-symbol.md"),
+            r#"---
+doc_uid: doc:bad-symbol
+title: Bad Symbol
+anchors:
+  - anchor_type: symbol
+    symbol_uid: bad uid
+---
+
+## Overview
+
+Broken anchor.
+"#,
+        )
+        .unwrap();
+
+        let repo = MockRepo::default();
+        let result = index_docs(temp.path(), "docs-sidecar", &repo).unwrap();
+        assert_eq!(result.docs_indexed, 1);
+
+        let target_uid: sidecar_types::Uid =
+            "sym:ts:src/cart:CartService:866eb7ea".parse().unwrap();
+        let doc = repo.get_doc(&target_uid).unwrap();
+        assert!(doc.is_some());
+        assert_eq!(doc.unwrap().doc_uid.as_str(), "doc:valid-overview");
+    }
+}

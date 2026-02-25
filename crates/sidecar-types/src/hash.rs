@@ -44,3 +44,22 @@ impl fmt::Display for Fingerprint {
         f.write_str(&self.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ContentHash, Fingerprint};
+
+    #[test]
+    fn content_hash_accessors() {
+        let hash = ContentHash::from_hex("abc123".to_owned());
+        assert_eq!(hash.as_str(), "abc123");
+        assert_eq!(hash.to_string(), "abc123");
+    }
+
+    #[test]
+    fn fingerprint_accessors() {
+        let fingerprint = Fingerprint::from_hex("def456".to_owned());
+        assert_eq!(fingerprint.as_str(), "def456");
+        assert_eq!(fingerprint.to_string(), "def456");
+    }
+}

@@ -515,4 +515,80 @@ mod tests {
         assert!(found.is_some());
         assert_eq!(found.unwrap().content_hash.as_str(), "hash1");
     }
+
+    #[test]
+    fn find_refs_reports_total_and_truncation() {
+        let repo = SqliteRepository::open_in_memory().unwrap();
+
+        let file = FileRecord {
+            file_uid: "file:src/a.ts".parse().unwrap(),
+            path: "src/a.ts".parse().unwrap(),
+            language: Language::TypeScript,
+            content_hash: ContentHash::from_hex("h1".to_owned()),
+            last_indexed_at: "2026-01-01".to_owned(),
+        };
+        repo.upsert_file(&file).unwrap();
+
+        let target: Uid = "sym:ts:src/a:Target:abcd1234".parse().unwrap();
+        let from1: Uid = "sym:ts:src/a:FromOne:eeee1111".parse().unwrap();
+        let from2: Uid = "sym:ts:src/a:FromTwo:eeee2222".parse().unwrap();
+
+        let refs = vec![
+            Reference {
+                from_uid: from1,
+                to_uid: target.clone(),
+                file_uid: file.file_uid.clone(),
+                range: Range { start: 2, end: 3 },
+                ref_kind: RefKind::Call,
+            },
+            Reference {
+                from_uid: from2,
+                to_uid: target.clone(),
+                file_uid: file.file_uid,
+                range: Range { start: 4, end: 5 },
+                ref_kind: RefKind::TypeRef,
+            },
+        ];
+        repo.upsert_refs(&refs).unwrap();
+
+        let result = repo
+            .find_refs(
+                &target,
+                &RefsQuery {
+                    limit: sidecar_types::Limit::new(1).unwrap(),
+                    offset: sidecar_types::Offset::default(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.total, 2);
+        assert_eq!(result.results.len(), 1);
+        assert!(result.truncated);
+    }
+
+    #[test]
+    fn upsert_and_get_doc_records() {
+        let repo = SqliteRepository::open_in_memory().unwrap();
+        let target_uid: Uid = "sym:ts:src/a:Target:abcd1234".parse().unwrap();
+
+        assert!(repo.get_doc(&target_uid).unwrap().is_none());
+
+        let docs = vec![DocRecord {
+            doc_uid: "doc:target-overview".parse().unwrap(),
+            target_uid: target_uid.clone(),
+            path: "docs-sidecar/target.md".parse().unwrap(),
+            summary_cache: Some("overview summary".to_owned()),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        }];
+
+        repo.upsert_docs(&docs).unwrap();
+
+        let found = repo
+            .get_doc(&target_uid)
+            .unwrap()
+            .expect("doc should exist");
+        assert_eq!(found.doc_uid.as_str(), "doc:target-overview");
+        assert_eq!(found.path.as_str(), "docs-sidecar/target.md");
+        assert_eq!(found.summary_cache.as_deref(), Some("overview summary"));
+    }
 }
