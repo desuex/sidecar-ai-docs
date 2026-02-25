@@ -1,0 +1,43 @@
+site_name: Sidecar AI Code Documentation
+site_description: Refactor-resilient, queryable documentation substrate for codebases
+site_url: https://sidecar-ai-docs.readthedocs.io/
+repo_name: sidecar-ai-docs
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: readthedocs
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Vision:
+      - Manifesto: MANIFESTO.md
+      - Vision: VISION.md
+      - Glossary: GLOSSARY.md
+  - Architecture:
+      - Overview: ARCHITECTURE-OVERVIEW.md
+      - Data Model: DATA-MODEL.md
+      - UID and Xref Model: UID-AND-XREF-MODEL.md
+      - Anchoring Spec: ANCHORING-SPEC.md
+      - Storage Spec: STORAGE-SPEC.md
+  - Interfaces:
+      - CLI Spec: CLI-SPEC.md
+      - MCP Spec: MCP-SPEC.md
+      - MCP Server Design: MCP-SERVER-DESIGN.md
+      - IDE Integration: IDE-INTEGRATION.md
+  - Evaluation:
+      - Evaluation Plan: EVALUATION-PLAN.md
+      - Test Vectors: TEST-VECTORS.md
+      - Compatibility: COMPATIBILITY.md
+  - Delivery:
+      - Sidecar to MkDocs Exporter Plan: SIDECAR-MKDOCS-EXPORTER-PLAN.md
+      - Generated Sidecar Docs: generated/README.md

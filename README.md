@@ -151,6 +151,28 @@ Core specifications are being formalized prior to implementation.
 
 ---
 
+## Documentation Build (MkDocs + RTD)
+
+Read the Docs is configured with MkDocs using:
+
+* `.readthedocs.yaml`
+* `mkdocs.yml`
+
+Local workflow:
+
+1. Run exporter bootstrap:
+   * `./scripts/docs/export-sidecar-to-mkdocs.sh`
+2. Install docs deps:
+   * `pip install -r docs/requirements.txt`
+3. Build docs:
+   * `mkdocs build --strict`
+
+Exporter implementation plan:
+
+* `docs/SIDECAR-MKDOCS-EXPORTER-PLAN.md`
+
+---
+
 ## License
 
 See LICENSE file.
