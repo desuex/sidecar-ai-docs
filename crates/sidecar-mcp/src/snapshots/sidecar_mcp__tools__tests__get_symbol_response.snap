@@ -1,0 +1,18 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 7
+result:
+  symbol:
+    file_uid: "file:src/cart.ts"
+    fingerprint: 866eb7eaac9f2ac8c705957c84f836446525b1d4af48bf3d8034a68680e09c9c
+    kind: class
+    name: CartService
+    qualified_name: CartService
+    range:
+      end: 100
+      start: 10
+    uid: "sym:ts:src/cart:CartService:866eb7ea"
+    visibility: public

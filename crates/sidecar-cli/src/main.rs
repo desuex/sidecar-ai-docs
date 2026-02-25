@@ -1,7 +1,7 @@
 mod cmd;
-mod output;
 
 use clap::{Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
 
 /// Global options shared across commands that need the index.
 #[derive(Parser)]
@@ -89,11 +89,9 @@ enum Commands {
 }
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+    init_logging(&cli);
+
     let root = &cli.root;
     let sidecar_dir = &cli.sidecar_dir;
 
@@ -117,8 +115,34 @@ fn main() {
             ref mode,
             json,
         } => cmd::doc::run(root, sidecar_dir, uid, mode, json),
-        Commands::Mcp { .. } => cmd::mcp::run(),
+        Commands::Mcp { .. } => cmd::mcp::run(root, sidecar_dir),
     };
 
     std::process::exit(exit_code);
+}
+
+fn init_logging(cli: &Cli) {
+    let (fallback_level, json_logs) = match &cli.command {
+        Commands::Mcp {
+            log_level,
+            json_logs,
+        } => (log_level.as_str(), *json_logs),
+        _ => ("info", false),
+    };
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(fallback_level));
+
+    if json_logs {
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(filter)
+            .compact()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(filter)
+            .init();
+    }
 }

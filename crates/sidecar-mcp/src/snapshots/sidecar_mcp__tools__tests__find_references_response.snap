@@ -1,0 +1,17 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 8
+result:
+  results:
+    - file_uid: "file:src/cart.ts"
+      from_uid: "sym:ts:src/cart:createCart:cb65d33e"
+      range:
+        end: 60
+        start: 50
+      ref_kind: type_ref
+      to_uid: "sym:ts:src/cart:CartService:866eb7ea"
+  total: 1
+  truncated: false

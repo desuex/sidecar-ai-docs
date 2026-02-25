@@ -1,0 +1,14 @@
+---
+source: crates/sidecar-mcp/src/tools.rs
+expression: resp
+---
+jsonrpc: "2.0"
+id: 9
+result:
+  doc_uid: "doc:cart-overview"
+  exists: true
+  path: docs-sidecar/symbols/doc-cart.md
+  summary: Cached summary
+  target_uid: "sym:ts:src/cart:CartService:866eb7ea"
+  truncated: false
+  updated_at: "2026-01-01T00:00:00Z"

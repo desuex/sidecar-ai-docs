@@ -36,7 +36,5 @@ jobs:
         run: cargo test --all --all-features
 
       - name: CLI smoke test
-        run: |
-          cargo build
-          cargo run -- --help
-          cargo run -- search "test" --json || true
+        shell: bash
+        run: ./scripts/ci/smoke.sh

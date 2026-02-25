@@ -64,6 +64,12 @@ We are cautious about:
 	6.	Ensure deterministic output.
 	7.	Submit pull request.
 
+Optional local hooks:
+	•	Run `./scripts/dev/install-hooks.sh` to install:
+	•	`pre-commit`: `cargo fmt --all`
+	•	`pre-push`: `cargo test --all --all-features`
+	•	Hooks are convenience only and are not required for contribution.
+
 Pull requests must:
 	•	Explain motivation
 	•	Reference related issue (if any)
