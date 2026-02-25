@@ -1,5 +1,8 @@
 # Sidecar AI Code Documentation
 
+[![codecov](https://codecov.io/gh/desuex/sidecar-ai-docs/graph/badge.svg?token=H5O3S2563V)](https://codecov.io/gh/desuex/sidecar-ai-docs)
+[![docs](https://readthedocs.org/projects/docsai/badge/?version=latest)](https://docsai.readthedocs.io/)
+
 ## Intelligent, Refactor-Resistant Documentation Substrate for Codebases
 
 ---
@@ -127,6 +130,7 @@ Rendering layers may be added — but they are not the core.
 
 See the `docs/` folder for full specifications:
 
+* [Usage Scenarios](USAGE.md)
 * [Manifesto & Vision](docs/MANIFESTO.md)
 * [Architecture Overview](docs/ARCHITECTURE-OVERVIEW.md)
 * [Data Model](docs/DATA-MODEL.md)
@@ -160,8 +164,8 @@ Read the Docs is configured with MkDocs using:
 
 Local workflow:
 
-1. Run exporter bootstrap:
-   * `./scripts/docs/export-sidecar-to-mkdocs.sh`
+1. Run exporter:
+   * `cargo run --bin sidecar -- export mkdocs --root . --out docs/generated`
 2. Install docs deps:
    * `pip install -r docs/requirements.txt`
 3. Build docs:
@@ -170,6 +174,10 @@ Local workflow:
 Exporter implementation plan:
 
 * `docs/SIDECAR-MKDOCS-EXPORTER-PLAN.md`
+* Current exporter output:
+  * `docs/generated/_manifest.json`
+  * `docs/generated/symbols/<doc_uid>.md`
+  * `docs/generated/reports/unresolved-anchors.md`
 
 ---
 

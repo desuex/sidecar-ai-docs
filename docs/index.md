@@ -17,4 +17,6 @@ The plan for a custom `sidecar+md -> MkDocs` exporter is tracked in:
 
 - `SIDECAR-MKDOCS-EXPORTER-PLAN.md`
 
-Generated content is written under `docs/generated/` during docs builds.
+Generated content is written under `docs/generated/` during docs builds via:
+
+- `sidecar export mkdocs --root . --out docs/generated`

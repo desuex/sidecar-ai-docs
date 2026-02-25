@@ -1,4 +1,5 @@
 pub mod doc;
+pub mod export;
 pub mod index;
 pub mod mcp;
 pub mod refs;
@@ -15,7 +16,7 @@ mod tests {
     use sidecar_storage::SqliteRepository;
     use tempfile::TempDir;
 
-    use super::{doc, index, mcp, refs, search, symbol};
+    use super::{doc, export, index, mcp, refs, search, symbol};
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -270,6 +271,16 @@ anchors:
         fs::write(&root_file, "x").expect("write root file");
 
         let code = mcp::run(root_file.to_str().unwrap(), ".sidecar");
+        assert_eq!(code, 5);
+    }
+
+    #[test]
+    fn export_returns_error_when_root_is_invalid() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root_file = temp.path().join("root.txt");
+        fs::write(&root_file, "x").expect("write root file");
+
+        let code = export::run_mkdocs(root_file.to_str().unwrap(), "docs/generated", None);
         assert_eq!(code, 5);
     }
 }

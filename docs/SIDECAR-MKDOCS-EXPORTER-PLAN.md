@@ -47,34 +47,30 @@ Determinism requirements:
    - Add pre-build exporter hook script.
    - Add placeholder generated content.
 
-2. Phase 1: Copy-through exporter
+2. Phase 1: Copy-through exporter (completed)
    - Parse `docs-sidecar/**/*.md`.
    - Copy to `docs/generated/symbols/` with deterministic naming.
    - Emit `_manifest.json`.
 
-3. Phase 2: Structured rendering
+3. Phase 2: Structured rendering (completed)
    - Parse front matter.
    - Render stable title, summary, anchors section.
    - Add source links back to `docs-sidecar`.
 
-4. Phase 3: Sidecar index integration
+4. Phase 3: Sidecar index integration (completed)
    - Read `.sidecar/index.sqlite` (or JSON export later).
    - Validate `symbol_uid` existence and flag unresolved anchors.
    - Generate unresolved report page.
 
-5. Phase 4: CLI integration
+5. Phase 4: CLI integration (completed)
    - Add `sidecar export mkdocs` command.
    - Make RTD pre-build call the CLI command instead of shell script.
 
 ## Execution Model
 
-Short term:
+Current:
 
-- RTD pre-build runs `scripts/docs/export-sidecar-to-mkdocs.sh`.
-
-Long term:
-
-- RTD pre-build runs `sidecar export mkdocs --root . --out docs/generated`.
+- RTD pre-build runs `sidecar export mkdocs --root . --out docs/generated` (via `cargo run --bin sidecar -- export mkdocs ...`).
 
 ## Testing Strategy
 

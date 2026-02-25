@@ -41,3 +41,4 @@ nav:
   - Delivery:
       - Sidecar to MkDocs Exporter Plan: SIDECAR-MKDOCS-EXPORTER-PLAN.md
       - Generated Sidecar Docs: generated/README.md
+      - Unresolved Anchors Report: generated/reports/unresolved-anchors.md

@@ -86,6 +86,24 @@ enum Commands {
         #[arg(long)]
         json_logs: bool,
     },
+    /// Export Sidecar docs to external formats
+    Export {
+        #[command(subcommand)]
+        command: ExportCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExportCommands {
+    /// Export generated documentation for MkDocs/RTD
+    Mkdocs {
+        /// Output directory (relative to --root unless absolute)
+        #[arg(long, default_value = "docs/generated")]
+        out: String,
+        /// Optional path to index sqlite DB (relative to --root unless absolute)
+        #[arg(long)]
+        index_db: Option<String>,
+    },
 }
 
 fn main() {
@@ -121,6 +139,11 @@ fn run_cli(cli: &Cli) -> i32 {
             json,
         } => cmd::doc::run(root, sidecar_dir, uid, mode, json),
         Commands::Mcp { .. } => cmd::mcp::run(root, sidecar_dir),
+        Commands::Export { ref command } => match command {
+            ExportCommands::Mkdocs { out, index_db } => {
+                cmd::export::run_mkdocs(root, out, index_db.as_deref())
+            }
+        },
     }
 }
 
@@ -180,6 +203,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_export_mkdocs_command() {
+        let cli = Cli::try_parse_from([
+            "sidecar",
+            "export",
+            "mkdocs",
+            "--out",
+            "docs/generated",
+            "--index-db",
+            ".sidecar/index.sqlite",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Export {
+                command: ExportCommands::Mkdocs { .. }
+            }
+        ));
+        let (level, json_logs) = logging_mode(&cli);
+        assert_eq!(level, "info");
+        assert!(!json_logs);
+    }
+
+    #[test]
     fn run_cli_covers_command_dispatch() {
         let temp = tempfile::Builder::new()
             .prefix("sidecar-main-tests-")
@@ -222,5 +268,17 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(run_cli(&doc_cli), 2);
+
+        let export_cli = Cli::try_parse_from([
+            "sidecar",
+            "--root",
+            root_file.to_str().unwrap(),
+            "export",
+            "mkdocs",
+            "--out",
+            "docs/generated",
+        ])
+        .unwrap();
+        assert_eq!(run_cli(&export_cli), 5);
     }
 }

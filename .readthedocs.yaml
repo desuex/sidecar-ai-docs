@@ -4,9 +4,10 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
+    rust: "stable"
   jobs:
     pre_build:
-      - ./scripts/docs/export-sidecar-to-mkdocs.sh
+      - cargo run --quiet --bin sidecar -- export mkdocs --root . --out docs/generated
 
 mkdocs:
   configuration: mkdocs.yml
